@@ -580,6 +580,10 @@ namespace AgentForUnity.Editor.Application
                         }
 
                         _threadReady = false;
+                        // A failed resume can leave the persisted thread unusable (for example,
+                        // when the CLI's model catalog cache is stale). Forget it so the next
+                        // prompt can create a fresh thread instead of retrying the same failure.
+                        _threadId = null;
                         if (IsTurnActive)
                         {
                             foreach (var streaming in _streamingMessages.Values)
@@ -590,9 +594,9 @@ namespace AgentForUnity.Editor.Application
                             _streamingMessages.Clear();
                             _turnId = null;
                             TurnState = AgentTurnState.Failed;
-                            SaveState();
                         }
 
+                        SaveState();
                         ConnectionState = AgentConnectionState.Ready;
                         StatusText = "Connected - thread recovery failed";
                         AddDiagnostic(exception.Message);
@@ -872,6 +876,12 @@ namespace AgentForUnity.Editor.Application
                     break;
                 case "thread/started":
                 case "thread/status/changed":
+                case "mcpServer/startupStatus/updated":
+                case "item/started":
+                case "thread/tokenUsage/updated":
+                case "account/rateLimits/updated":
+                case "skills/changed":
+                case "thread/goal/cleared":
                     break;
                 default:
                     if (_reportedUnknownNotifications.Add(message.Method))
@@ -1091,7 +1101,7 @@ namespace AgentForUnity.Editor.Application
         private void AttachClient(CodexAppServerClient client)
         {
             client.NotificationReceived += HandleNotification;
-            client.DiagnosticReceived += AddDiagnostic;
+            client.DiagnosticReceived += HandleDiagnostic;
             client.Disconnected += QueueDisconnected;
         }
 
@@ -1105,7 +1115,7 @@ namespace AgentForUnity.Editor.Application
             }
 
             client.NotificationReceived -= HandleNotification;
-            client.DiagnosticReceived -= AddDiagnostic;
+            client.DiagnosticReceived -= HandleDiagnostic;
             client.Disconnected -= QueueDisconnected;
             client.Dispose();
             _threadReady = false;
@@ -1266,6 +1276,20 @@ namespace AgentForUnity.Editor.Application
 
             _diagnosticsVersion++;
             MarkChanged();
+        }
+
+        private void HandleDiagnostic(string message)
+        {
+            // AgentDock's legacy catalog cache is incompatible with Codex CLI 0.144.x.
+            // The CLI falls back to a live catalog successfully, so avoid presenting this
+            // non-fatal fallback notice as a chat error.
+            if (!string.IsNullOrEmpty(message) &&
+                message.IndexOf("failed to load models cache: missing field `base_instructions`", StringComparison.Ordinal) >= 0)
+            {
+                return;
+            }
+
+            AddDiagnostic(message);
         }
 
         private void MarkChanged()

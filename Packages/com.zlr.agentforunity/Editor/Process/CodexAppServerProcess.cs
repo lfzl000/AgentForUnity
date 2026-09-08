@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -72,7 +73,12 @@ namespace AgentForUnity.Editor.Codex
                 CreateNoWindow = true,
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
-                RedirectStandardError = true
+                RedirectStandardError = true,
+                // JSON-RPC requires the first byte on stdin to be `{`.  Encoding.UTF8 can
+                // emit a BOM through StreamWriter, which app-server rejects as invalid JSON.
+                StandardInputEncoding = new UTF8Encoding(false),
+                StandardOutputEncoding = new UTF8Encoding(false),
+                StandardErrorEncoding = new UTF8Encoding(false)
             };
 
             _process = new System.Diagnostics.Process { StartInfo = startInfo };
