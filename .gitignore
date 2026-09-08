@@ -1,0 +1,37 @@
+# Unity generated directories
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Mm]emoryCaptures/
+
+# Generated IDE files
+/.idea/
+/.vs/
+/.vscode/
+*.csproj
+*.sln
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# Unity generated crash reports and profiling data
+sysinfo.txt
+*.stackdump
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Local generated project analysis
+/Docs/AI/UnityProjectContext.md

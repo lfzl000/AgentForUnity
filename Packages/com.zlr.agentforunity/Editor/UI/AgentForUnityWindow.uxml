@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ui:UXML xmlns:ui="UnityEngine.UIElements">
+    <ui:VisualElement name="window-root" class="afu-root">
+        <ui:VisualElement class="afu-header">
+            <ui:VisualElement class="afu-header__identity">
+                <ui:Label text="Agent for Unity" class="afu-title" />
+                <ui:VisualElement class="afu-connection">
+                    <ui:VisualElement name="status-dot" class="afu-status-dot" />
+                    <ui:Label name="connection-state" text="Not checked" class="afu-connection__label" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:VisualElement class="afu-header__actions">
+                <ui:Button name="reconnect-button" text="Reconnect" tooltip="Restart connection detection" />
+                <ui:Button name="new-thread-button" text="New Thread" tooltip="Start a new project-scoped thread" class="afu-primary-button" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <ui:VisualElement class="afu-status-bar">
+            <ui:Label name="status-text" text="Checking Codex..." class="afu-status-text" />
+            <ui:Label name="project-summary" class="afu-project-summary" />
+        </ui:VisualElement>
+
+        <ui:VisualElement class="afu-workspace">
+            <ui:VisualElement class="afu-chat-pane">
+                <ui:VisualElement class="afu-turn-toolbar">
+                    <ui:DropdownField name="model-field" label="Model" class="afu-select" />
+                    <ui:DropdownField name="reasoning-field" label="Reasoning" class="afu-select afu-select--reasoning" />
+                    <ui:Label name="turn-state" text="Idle" class="afu-turn-state" />
+                </ui:VisualElement>
+
+                <ui:VisualElement class="afu-thread-bar">
+                    <ui:Label text="Thread" class="afu-field-caption" />
+                    <ui:Label name="thread-value" text="Not started" class="afu-thread-value" />
+                </ui:VisualElement>
+
+                <ui:ScrollView name="messages-scroll" class="afu-messages">
+                    <ui:VisualElement name="messages-list" class="afu-messages__list" />
+                </ui:ScrollView>
+
+                <ui:VisualElement class="afu-composer">
+                    <ui:TextField name="prompt-field" multiline="true" class="afu-prompt" />
+                    <ui:VisualElement class="afu-composer__actions">
+                        <ui:Button name="interrupt-button" text="Stop" tooltip="Interrupt the active turn" />
+                        <ui:Button name="send-button" text="Send" tooltip="Send this prompt to the current thread" class="afu-primary-button" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+            </ui:VisualElement>
+
+            <ui:VisualElement class="afu-details-pane">
+                <ui:Foldout name="connection-foldout" text="Connection" value="true" class="afu-foldout">
+                    <ui:VisualElement class="afu-detail-row">
+                        <ui:Label text="CLI" class="afu-field-caption" />
+                        <ui:Label name="cli-path-value" class="afu-detail-value" />
+                    </ui:VisualElement>
+                    <ui:VisualElement class="afu-detail-row">
+                        <ui:Label text="Version" class="afu-field-caption" />
+                        <ui:Label name="cli-version-value" class="afu-detail-value" />
+                    </ui:VisualElement>
+                    <ui:VisualElement class="afu-detail-row">
+                        <ui:Label text="Account" class="afu-field-caption" />
+                        <ui:Label name="account-value" class="afu-detail-value" />
+                    </ui:VisualElement>
+                    <ui:VisualElement class="afu-detail-row">
+                        <ui:Label text="Project" class="afu-field-caption" />
+                        <ui:Label name="project-value" class="afu-detail-value" />
+                    </ui:VisualElement>
+                </ui:Foldout>
+
+                <ui:Foldout name="diagnostics-foldout" text="Diagnostics" value="true" class="afu-foldout afu-diagnostics-foldout">
+                    <ui:ScrollView class="afu-diagnostics-scroll">
+                        <ui:VisualElement name="diagnostics-list" class="afu-diagnostics-list" />
+                    </ui:ScrollView>
+                </ui:Foldout>
+            </ui:VisualElement>
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>

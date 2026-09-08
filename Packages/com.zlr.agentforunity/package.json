@@ -1,0 +1,25 @@
+{
+  "name": "com.zlr.agentforunity",
+  "version": "0.1.0",
+  "displayName": "Agent for Unity",
+  "description": "An Editor-only Codex client for Unity. The M0 release validates local app-server connectivity, model selection, streaming read-only turns, interruption, and thread recovery.",
+  "unity": "2022.3",
+  "dependencies": {
+    "com.unity.nuget.newtonsoft-json": "3.2.1"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "codex",
+    "editor"
+  ],
+  "documentationUrl": "https://github.com/lfzl000/AgentForUnity/blob/main/Packages/com.zlr.agentforunity/README.md",
+  "changelogUrl": "https://github.com/lfzl000/AgentForUnity/blob/main/Packages/com.zlr.agentforunity/CHANGELOG.md",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lfzl000/AgentForUnity.git"
+  },
+  "author": {
+    "name": "ZLR"
+  }
+}

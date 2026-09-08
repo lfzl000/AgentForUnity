@@ -1,0 +1,23 @@
+{
+  "name": "AgentForUnity.M0.Editor.Tests",
+  "rootNamespace": "AgentForUnity.Editor.Tests",
+  "references": [
+    "AgentForUnity.Editor"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": true,
+  "precompiledReferences": [
+    "Newtonsoft.Json.dll"
+  ],
+  "autoReferenced": false,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false,
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ]
+}

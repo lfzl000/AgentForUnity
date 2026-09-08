@@ -1,0 +1,362 @@
+.afu-root {
+    flex-grow: 1;
+    min-width: 0;
+}
+
+.afu-header {
+    min-height: 44px;
+    padding: 7px 10px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom-width: 1px;
+    border-bottom-color: rgba(128, 128, 128, 0.28);
+}
+
+.afu-header__identity,
+.afu-header__actions,
+.afu-connection,
+.afu-composer__actions {
+    flex-direction: row;
+    align-items: center;
+}
+
+.afu-header__identity {
+    min-width: 0;
+    flex-shrink: 1;
+}
+
+.afu-title {
+    font-size: 15px;
+    -unity-font-style: bold;
+    margin-right: 12px;
+}
+
+.afu-connection {
+    padding: 3px 6px;
+    border-width: 1px;
+    border-color: rgba(128, 128, 128, 0.30);
+    border-radius: 4px;
+    background-color: rgba(0, 0, 0, 0.06);
+}
+
+.afu-status-dot {
+    width: 7px;
+    height: 7px;
+    margin-right: 5px;
+    border-radius: 4px;
+    background-color: rgb(142, 142, 147);
+}
+
+.afu-status-dot--ready {
+    background-color: rgb(52, 168, 83);
+}
+
+.afu-status-dot--working {
+    background-color: rgb(45, 132, 210);
+}
+
+.afu-status-dot--warning {
+    background-color: rgb(218, 153, 38);
+}
+
+.afu-status-dot--error {
+    background-color: rgb(207, 65, 65);
+}
+
+.afu-connection__label {
+    font-size: 11px;
+    -unity-font-style: bold;
+}
+
+.afu-header__actions > Button {
+    margin-left: 5px;
+}
+
+.afu-primary-button {
+    -unity-font-style: bold;
+}
+
+.afu-status-bar {
+    min-height: 30px;
+    padding: 5px 10px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    background-color: rgba(0, 0, 0, 0.07);
+    border-bottom-width: 1px;
+    border-bottom-color: rgba(128, 128, 128, 0.22);
+}
+
+.afu-status-text {
+    flex-grow: 1;
+    white-space: normal;
+}
+
+.afu-project-summary {
+    max-width: 45%;
+    margin-left: 12px;
+    opacity: 0.65;
+    -unity-text-align: middle-right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.afu-workspace {
+    flex-grow: 1;
+    min-height: 0;
+    min-width: 0;
+    flex-direction: row;
+}
+
+.afu-chat-pane {
+    flex-grow: 1;
+    min-height: 0;
+    min-width: 280px;
+}
+
+.afu-turn-toolbar {
+    min-height: 42px;
+    padding: 5px 8px;
+    flex-direction: row;
+    align-items: center;
+    border-bottom-width: 1px;
+    border-bottom-color: rgba(128, 128, 128, 0.22);
+}
+
+.afu-select {
+    min-width: 190px;
+    max-width: 310px;
+    flex-grow: 1;
+    margin-right: 8px;
+}
+
+.afu-select--reasoning {
+    min-width: 150px;
+    max-width: 220px;
+}
+
+.afu-turn-state {
+    min-width: 74px;
+    padding: 3px 6px;
+    border-radius: 4px;
+    background-color: rgba(128, 128, 128, 0.13);
+    -unity-text-align: middle-center;
+    -unity-font-style: bold;
+}
+
+.afu-thread-bar {
+    min-height: 28px;
+    padding: 4px 10px;
+    flex-direction: row;
+    align-items: center;
+    background-color: rgba(0, 0, 0, 0.035);
+}
+
+.afu-field-caption {
+    min-width: 58px;
+    opacity: 0.62;
+    font-size: 11px;
+    -unity-font-style: bold;
+}
+
+.afu-thread-value {
+    min-width: 0;
+    flex-grow: 1;
+    margin-left: 4px;
+    opacity: 0.78;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.afu-messages {
+    flex-grow: 1;
+    min-height: 100px;
+}
+
+.afu-messages__list {
+    padding: 10px;
+}
+
+.afu-empty-state {
+    margin-top: 24px;
+    opacity: 0.58;
+    -unity-text-align: middle-center;
+}
+
+.afu-message {
+    margin-bottom: 8px;
+    padding: 8px 10px;
+    border-left-width: 3px;
+    border-left-color: rgba(128, 128, 128, 0.45);
+    border-top-width: 1px;
+    border-right-width: 1px;
+    border-bottom-width: 1px;
+    border-top-color: rgba(128, 128, 128, 0.18);
+    border-right-color: rgba(128, 128, 128, 0.18);
+    border-bottom-color: rgba(128, 128, 128, 0.18);
+    border-radius: 4px;
+    background-color: rgba(0, 0, 0, 0.045);
+}
+
+.afu-message--user {
+    border-left-color: rgb(45, 132, 210);
+}
+
+.afu-message--agent {
+    border-left-color: rgb(52, 168, 83);
+}
+
+.afu-message__header {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 5px;
+}
+
+.afu-message__role {
+    font-size: 11px;
+    -unity-font-style: bold;
+}
+
+.afu-message__streaming {
+    margin-left: 7px;
+    font-size: 10px;
+    opacity: 0.62;
+}
+
+.afu-message__body {
+    white-space: normal;
+}
+
+.afu-composer {
+    padding: 8px;
+    border-top-width: 1px;
+    border-top-color: rgba(128, 128, 128, 0.25);
+}
+
+.afu-prompt {
+    min-height: 70px;
+    max-height: 180px;
+    margin-bottom: 6px;
+}
+
+.afu-prompt .unity-text-field__input {
+    white-space: normal;
+}
+
+.afu-composer__actions {
+    justify-content: flex-end;
+}
+
+.afu-composer__actions > Button {
+    min-width: 64px;
+    margin-left: 5px;
+}
+
+.afu-details-pane {
+    width: 280px;
+    min-width: 230px;
+    min-height: 0;
+    padding: 5px 8px 8px 8px;
+    border-left-width: 1px;
+    border-left-color: rgba(128, 128, 128, 0.25);
+    background-color: rgba(0, 0, 0, 0.035);
+}
+
+.afu-foldout {
+    margin-bottom: 5px;
+}
+
+.afu-detail-row {
+    padding: 3px 2px;
+}
+
+.afu-detail-value {
+    margin-top: 2px;
+    white-space: normal;
+}
+
+.afu-diagnostics-foldout {
+    flex-grow: 1;
+    min-height: 0;
+}
+
+.afu-diagnostics-foldout > .unity-foldout__content {
+    flex-grow: 1;
+    min-height: 0;
+}
+
+.afu-diagnostics-scroll {
+    flex-grow: 1;
+    min-height: 70px;
+}
+
+.afu-diagnostic {
+    margin: 2px 0 5px 0;
+    padding: 5px 6px;
+    white-space: normal;
+    border-left-width: 2px;
+    border-left-color: rgba(218, 153, 38, 0.85);
+    background-color: rgba(0, 0, 0, 0.055);
+}
+
+.afu-diagnostic--empty {
+    opacity: 0.55;
+    border-left-width: 0;
+    background-color: rgba(0, 0, 0, 0);
+}
+
+.afu-root.afu--compact .afu-header {
+    align-items: stretch;
+    flex-direction: column;
+}
+
+.afu-root.afu--compact .afu-header__actions {
+    margin-top: 6px;
+    justify-content: flex-end;
+}
+
+.afu-root.afu--compact .afu-status-bar {
+    align-items: stretch;
+    flex-direction: column;
+}
+
+.afu-root.afu--compact .afu-project-summary {
+    max-width: none;
+    margin-top: 2px;
+    margin-left: 0;
+    -unity-text-align: middle-left;
+}
+
+.afu-root.afu--compact .afu-workspace {
+    flex-direction: column;
+}
+
+.afu-root.afu--compact .afu-turn-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+}
+
+.afu-root.afu--compact .afu-select {
+    min-width: 0;
+    max-width: none;
+    margin-right: 0;
+    margin-bottom: 3px;
+}
+
+.afu-root.afu--compact .afu-turn-state {
+    align-self: flex-end;
+}
+
+.afu-root.afu--compact .afu-details-pane {
+    width: auto;
+    min-width: 0;
+    max-height: 205px;
+    border-top-width: 1px;
+    border-top-color: rgba(128, 128, 128, 0.25);
+    border-left-width: 0;
+}
+
+.afu-root.afu--compact .afu-connection__label {
+    white-space: normal;
+}

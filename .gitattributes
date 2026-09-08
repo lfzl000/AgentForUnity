@@ -1,0 +1,15 @@
+# Unity writes a single space after empty YAML values.
+*.anim text eol=lf whitespace=-trailing-space
+*.asset text eol=lf whitespace=-trailing-space
+*.controller text eol=lf whitespace=-trailing-space
+*.mat text eol=lf whitespace=-trailing-space
+*.meta text eol=lf whitespace=-trailing-space
+*.prefab text eol=lf whitespace=-trailing-space
+*.scenetemplate text eol=lf whitespace=-trailing-space
+*.unity text eol=lf whitespace=-trailing-space
+
+*.cs text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.uss text eol=lf
+*.uxml text eol=lf
