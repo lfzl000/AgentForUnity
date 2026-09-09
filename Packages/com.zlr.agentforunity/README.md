@@ -13,6 +13,7 @@ The core workflow provides:
 - list and switch between resumable Codex conversations created for the current Unity project;
 - stream Agent messages, plans, reasoning summaries, tools, commands, and file changes;
 - attach Project, Selection, recent Console, File, Scene, and Git Diff context;
+- paste clipboard screenshots as removable image attachments with thumbnail previews;
 - approve or decline command, network, file-change, and user-input requests;
 - choose a persistent Ask Approval, Codex Decides, or Full Access permission mode;
 - inspect the current turn's aggregated Diff and open changed files;
@@ -47,6 +48,8 @@ The package depends on `com.unity.nuget.newtonsoft-json` `3.2.1`.
 In Unity, choose **Window > Agent for Unity**. The window reports the detected CLI, account, project root, current thread, connection state, and diagnostics. The **Conversations** pane lists non-archived threads whose working directory is the current Unity project; use **New Thread**, refresh, or select a thread to continue it. A thread that is already active in another Codex client opens read-only.
 
 Choose an available model, reasoning effort, and permission mode before sending a prompt. Attach Project, Selection, specific Console entries, File, Scene, or Git Diff context as required. The first new thread automatically receives the project summary. Context is redacted, de-duplicated by hash, and constrained by size budgets before it is sent.
+
+Use **+ Screenshot**, or press **Cmd+V** on macOS while the prompt is focused, to attach an image currently on the clipboard. Screenshot drafts and sent messages show thumbnail previews; remove a draft with the **x** button on its preview. Clipboard images are stored under `Library/AgentForUnity/Attachments` and sent to Codex as local image inputs rather than imported Unity assets.
 
 Agent responses render common Markdown. Plans, reasoning summaries, tool actions, command output, and file-change activity are grouped with the Agent message for the same turn. Use **Stop** to interrupt an active turn. While a turn is running, **Send** becomes **Steer** and appends a correction to that turn.
 

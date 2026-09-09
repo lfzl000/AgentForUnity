@@ -14,9 +14,10 @@ namespace AgentForUnity.Editor.UI
         private const string UxmlPath = "Packages/com.zlr.agentforunity/Editor/UI/AgentForUnityWindow.uxml";
         private const string UssPath = "Packages/com.zlr.agentforunity/Editor/UI/AgentForUnityWindow.uss";
         private const float CompactWidth = 690f;
-        private const int MaxRenderedActivityItems = 40;
-        private const int MaxRenderedActivityBodyCharacters = 2048;
+        private const int MaxRenderedActivityItems = 12;
+        private const int MaxRenderedActivityBodyCharacters = 512;
         private const int MaxRenderedReasoningCharacters = 6000;
+        private const int MaxPreviewImageBytes = 25 * 1024 * 1024;
         private static readonly string[] TurnActivityFrames = { "|", "/", "-", "\\" };
 
         private static readonly IReadOnlyList<string> PermissionChoices = new[]
@@ -28,6 +29,7 @@ namespace AgentForUnity.Editor.UI
 
         private readonly List<string> _modelIds = new List<string>();
         private readonly List<MessageRow> _messageRows = new List<MessageRow>();
+        private readonly List<Texture2D> _composerPreviewTextures = new List<Texture2D>();
 
         private AgentForUnityService _service;
         private VisualElement _windowRoot;
@@ -86,6 +88,7 @@ namespace AgentForUnity.Editor.UI
         private Button _addFileButton;
         private Button _addSceneButton;
         private Button _addGitDiffButton;
+        private Button _addScreenshotButton;
         private Button _continueFixButton;
         private Button _reviewApprovalButton;
         private Button _chatAllowOnceButton;
@@ -134,6 +137,7 @@ namespace AgentForUnity.Editor.UI
         private void OnDisable()
         {
             StopTurnActivityAnimation();
+            DestroyAttachmentPreviewTextures();
             if (_service != null)
             {
                 _service.Changed -= OnServiceChanged;
@@ -145,6 +149,7 @@ namespace AgentForUnity.Editor.UI
             StopTurnActivityAnimation();
             rootVisualElement.Clear();
             rootVisualElement.UnregisterCallback<GeometryChangedEvent>(OnGeometryChanged);
+            DestroyAttachmentPreviewTextures();
             _messageRows.Clear();
             _lastDiagnosticsVersion = -1;
             _lastMessageCount = 0;
@@ -255,6 +260,7 @@ namespace AgentForUnity.Editor.UI
             _addFileButton = rootVisualElement.Q<Button>("add-file-button");
             _addSceneButton = rootVisualElement.Q<Button>("add-scene-button");
             _addGitDiffButton = rootVisualElement.Q<Button>("add-git-diff-button");
+            _addScreenshotButton = rootVisualElement.Q<Button>("add-screenshot-button");
             _continueFixButton = rootVisualElement.Q<Button>("continue-fix-button");
             _reviewApprovalButton = rootVisualElement.Q<Button>("review-approval-button");
             _chatAllowOnceButton = rootVisualElement.Q<Button>("chat-allow-once-button");
@@ -318,6 +324,7 @@ namespace AgentForUnity.Editor.UI
                    && _addFileButton != null
                    && _addSceneButton != null
                    && _addGitDiffButton != null
+                   && _addScreenshotButton != null
                    && _continueFixButton != null
                    && _reviewApprovalButton != null
                    && _chatAllowOnceButton != null
@@ -341,6 +348,7 @@ namespace AgentForUnity.Editor.UI
             _messagesList.style.width = Length.Percent(100f);
             _messagesList.style.maxWidth = Length.Percent(100f);
             _promptField.RegisterValueChangedCallback(_ => UpdateActionAvailability());
+            _promptField.RegisterCallback<KeyDownEvent>(OnPromptKeyDown, TrickleDown.TrickleDown);
             _reconnectButton.clicked += () => _service.Reconnect();
             _disconnectButton.clicked += () => _service.Disconnect();
             _newThreadButton.clicked += () => _service.NewThread();
@@ -353,6 +361,7 @@ namespace AgentForUnity.Editor.UI
             _addFileButton.clicked += AddFileContext;
             _addSceneButton.clicked += () => AddContext(AgentContextKind.Scene);
             _addGitDiffButton.clicked += () => AddContext(AgentContextKind.GitDiff);
+            _addScreenshotButton.clicked += AddClipboardScreenshot;
             _continueFixButton.clicked += () => _service.ContinueFixCompilation();
             _reviewApprovalButton.clicked += FocusPendingApproval;
             _chatAllowOnceButton.clicked += () => ResolveActiveChatApproval("accept");
@@ -687,6 +696,7 @@ namespace AgentForUnity.Editor.UI
             {
                 if (_messageRows.Count != 0 || _messagesDeliveryList.childCount == 0)
                 {
+                    DestroyMessagePreviewTextures();
                     _messageRows.Clear();
                     _messagesDeliveryList.Clear();
                     var empty = new Label("No messages in this thread");
@@ -702,6 +712,7 @@ namespace AgentForUnity.Editor.UI
 
             if (_messageRows.Count != messageCount)
             {
+                DestroyMessagePreviewTextures();
                 _messageRows.Clear();
                 _messagesDeliveryList.Clear();
                 _lastMessagePresentationSignature = null;
@@ -970,6 +981,7 @@ namespace AgentForUnity.Editor.UI
             }
 
             _lastContextSignature = signature;
+            DestroyComposerPreviewTextures();
             _contextsList.Clear();
             if (contexts == null)
             {
@@ -978,6 +990,16 @@ namespace AgentForUnity.Editor.UI
 
             foreach (var context in contexts)
             {
+                if (context.Kind == AgentContextKind.Screenshot)
+                {
+                    _contextsList.Add(CreateScreenshotPreview(
+                        context.Label,
+                        context.Source,
+                        () => _service.RemoveContext(context.Id),
+                        _composerPreviewTextures));
+                    continue;
+                }
+
                 var chip = new VisualElement();
                 chip.AddToClassList("afu-context-chip");
                 var label = new Label($"{context.Label} · {context.CharacterCount:N0}");
@@ -992,7 +1014,7 @@ namespace AgentForUnity.Editor.UI
             }
         }
 
-        private static void RefreshMessageAttachments(
+        private void RefreshMessageAttachments(
             MessageRow row,
             IReadOnlyList<AgentChatAttachment> attachments)
         {
@@ -1005,6 +1027,7 @@ namespace AgentForUnity.Editor.UI
             }
 
             row.AttachmentSignature = signature;
+            DestroyTextures(row.PreviewTextures);
             row.Attachments.Clear();
             row.Attachments.style.display = string.IsNullOrEmpty(signature)
                 ? DisplayStyle.None
@@ -1014,11 +1037,21 @@ namespace AgentForUnity.Editor.UI
                 return;
             }
 
-            var caption = new Label("Attached context");
+            var caption = new Label("Attachments");
             caption.AddToClassList("afu-message__attachments-caption");
             row.Attachments.Add(caption);
             foreach (var attachment in attachments)
             {
+                if (attachment.Kind == AgentContextKind.Screenshot)
+                {
+                    row.Attachments.Add(CreateScreenshotPreview(
+                        attachment.Label,
+                        attachment.Source,
+                        null,
+                        row.PreviewTextures));
+                    continue;
+                }
+
                 var chip = new Label(attachment.Label)
                 {
                     tooltip = string.IsNullOrWhiteSpace(attachment.Source)
@@ -1594,8 +1627,9 @@ namespace AgentForUnity.Editor.UI
             }
 
             var hasPrompt = !string.IsNullOrWhiteSpace(_promptField.value);
+            var hasScreenshot = _service.HasScreenshotAttachments;
             _sendButton.text = _service.CanSteer ? "Steer" : "Send";
-            _sendButton.SetEnabled((_service.CanSend || _service.CanSteer) && hasPrompt);
+            _sendButton.SetEnabled((_service.CanSend || _service.CanSteer) && (hasPrompt || hasScreenshot));
             _interruptButton.SetEnabled(_service.CanInterrupt);
             _disconnectButton.SetEnabled(_service.CanDisconnect);
             _newThreadButton.SetEnabled(_service.CanStartThread);
@@ -1607,7 +1641,8 @@ namespace AgentForUnity.Editor.UI
         private void SendPrompt()
         {
             var prompt = _promptField.value == null ? string.Empty : _promptField.value.Trim();
-            if ((!_service.CanSend && !_service.CanSteer) || prompt.Length == 0)
+            if ((!_service.CanSend && !_service.CanSteer) ||
+                (prompt.Length == 0 && !_service.HasScreenshotAttachments))
             {
                 return;
             }
@@ -1622,6 +1657,40 @@ namespace AgentForUnity.Editor.UI
             }
             _promptField.SetValueWithoutNotify(string.Empty);
             UpdateActionAvailability();
+        }
+
+        private void OnPromptKeyDown(KeyDownEvent evt)
+        {
+            if (evt.keyCode != KeyCode.V || !evt.actionKey)
+            {
+                return;
+            }
+
+            if (TryAddClipboardScreenshot(false))
+            {
+                evt.PreventDefault();
+                evt.StopImmediatePropagation();
+            }
+        }
+
+        private void AddClipboardScreenshot()
+        {
+            TryAddClipboardScreenshot(true);
+        }
+
+        private bool TryAddClipboardScreenshot(bool showMissingImageNotice)
+        {
+            if (_service.TryAddClipboardScreenshot(out var error))
+            {
+                return true;
+            }
+
+            if (showMissingImageNotice && !string.IsNullOrWhiteSpace(error))
+            {
+                ShowNotification(new GUIContent(error));
+            }
+
+            return false;
         }
 
         private void OnModelChanged(ChangeEvent<string> change)
@@ -1923,6 +1992,7 @@ namespace AgentForUnity.Editor.UI
             contextToolbar.Add(Button("add-file-button", "+ File", "Attach a text file inside this project"));
             contextToolbar.Add(Button("add-scene-button", "+ Scene", "Attach the active scene summary"));
             contextToolbar.Add(Button("add-git-diff-button", "+ Git Diff", "Attach the current unstaged Git diff"));
+            contextToolbar.Add(Button("add-screenshot-button", "+ Screenshot", "Attach an image from the clipboard (Cmd/Ctrl+V)"));
             composer.Add(contextToolbar);
             composer.Add(Element("contexts-list", "afu-contexts-list"));
             var prompt = new TextField { name = "prompt-field", multiline = true };
@@ -2069,6 +2139,106 @@ namespace AgentForUnity.Editor.UI
             return new Button { name = name, text = text, tooltip = tooltip };
         }
 
+        private static VisualElement CreateScreenshotPreview(
+            string label,
+            string path,
+            Action removeAction,
+            ICollection<Texture2D> textures)
+        {
+            var preview = new VisualElement { tooltip = label };
+            preview.AddToClassList("afu-screenshot-preview");
+
+            var texture = LoadPreviewTexture(path);
+            if (texture != null)
+            {
+                textures.Add(texture);
+                var image = new Image
+                {
+                    image = texture,
+                    scaleMode = ScaleMode.ScaleToFit,
+                    pickingMode = PickingMode.Ignore
+                };
+                image.AddToClassList("afu-screenshot-preview__image");
+                preview.Add(image);
+            }
+            else
+            {
+                var unavailable = new Label("Image unavailable");
+                unavailable.AddToClassList("afu-screenshot-preview__unavailable");
+                preview.Add(unavailable);
+            }
+
+            if (removeAction != null)
+            {
+                var remove = new Button(removeAction) { text = "×", tooltip = "Remove screenshot" };
+                remove.AddToClassList("afu-screenshot-preview__remove");
+                preview.Add(remove);
+            }
+
+            return preview;
+        }
+
+        private static Texture2D LoadPreviewTexture(string path)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path) ||
+                    new FileInfo(path).Length > MaxPreviewImageBytes)
+                {
+                    return null;
+                }
+
+                var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false)
+                {
+                    hideFlags = HideFlags.HideAndDontSave
+                };
+                if (ImageConversion.LoadImage(texture, File.ReadAllBytes(path), true))
+                {
+                    return texture;
+                }
+
+                UnityEngine.Object.DestroyImmediate(texture);
+            }
+            catch (Exception)
+            {
+                // A missing or invalid historical image falls back to an unavailable placeholder.
+            }
+
+            return null;
+        }
+
+        private void DestroyAttachmentPreviewTextures()
+        {
+            DestroyComposerPreviewTextures();
+            DestroyMessagePreviewTextures();
+        }
+
+        private void DestroyComposerPreviewTextures()
+        {
+            DestroyTextures(_composerPreviewTextures);
+        }
+
+        private void DestroyMessagePreviewTextures()
+        {
+            foreach (var row in _messageRows)
+            {
+                DestroyTextures(row.PreviewTextures);
+            }
+        }
+
+        private static void DestroyTextures(ICollection<Texture2D> textures)
+        {
+            foreach (var texture in textures)
+            {
+                if (texture != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(texture);
+                }
+            }
+
+            textures.Clear();
+        }
+
         private sealed class MessageRow
         {
             internal MessageRow(
@@ -2103,6 +2273,7 @@ namespace AgentForUnity.Editor.UI
             internal string ActivitySignature { get; set; }
             internal string RenderedText { get; set; }
             internal string RawText { get; set; }
+            internal List<Texture2D> PreviewTextures { get; } = new List<Texture2D>();
         }
     }
 

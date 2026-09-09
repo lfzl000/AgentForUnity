@@ -38,7 +38,8 @@ namespace AgentForUnity.Editor.Application
         Console,
         File,
         Scene,
-        GitDiff
+        GitDiff,
+        Screenshot
     }
 
     internal sealed class AgentContextItem

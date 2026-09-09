@@ -6,6 +6,7 @@ All notable changes to Agent for Unity are documented in this file.
 
 ### Added
 
+- Clipboard screenshot attachments with removable composer thumbnails and sent-message previews.
 - A project-scoped list of resumable conversations with status, last-updated time, refresh, and thread switching.
 - Markdown rendering for Agent responses, including project-relative file links.
 - Per-message activity presentation for plans, reasoning summaries, tools, commands, and file changes.

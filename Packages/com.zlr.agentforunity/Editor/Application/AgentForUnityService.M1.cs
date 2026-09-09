@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Text;
 using AgentForUnity.Editor.Codex;
@@ -42,6 +43,7 @@ namespace AgentForUnity.Editor.Application
         internal AgentCompilationResult Compilation => _compilation;
         internal string LastDiff => _lastDiff;
         internal string LastDiffTurnId => _lastDiffTurnId;
+        internal bool HasScreenshotAttachments => _contexts.Any(item => item.Kind == AgentContextKind.Screenshot);
         internal bool CanSteer => ConnectionState == AgentConnectionState.Ready &&
                                   TurnState == AgentTurnState.Running &&
                                   !string.IsNullOrEmpty(_threadId) &&
@@ -75,6 +77,8 @@ namespace AgentForUnity.Editor.Application
                     case AgentContextKind.GitDiff:
                         item = AgentForUnityContextCollector.CaptureGitDiff(_projectRoot);
                         break;
+                    case AgentContextKind.Screenshot:
+                        throw new InvalidOperationException("Use the clipboard screenshot action to attach an image.");
                     default:
                         throw new ArgumentOutOfRangeException(nameof(kind), kind, null);
                 }
@@ -90,6 +94,26 @@ namespace AgentForUnity.Editor.Application
                 AddDiagnostic(exception.Message);
                 return false;
             }
+        }
+
+        internal bool TryAddClipboardScreenshot(out string error)
+        {
+            if (!AgentClipboardImageCapture.TryCapture(_projectRoot, out var path, out error))
+            {
+                return false;
+            }
+
+            var item = new AgentContextItem(
+                null,
+                AgentContextKind.Screenshot,
+                "Screenshot " + DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture),
+                path,
+                string.Empty,
+                DateTime.Now);
+            AddOrReplaceContext(item);
+            SaveState();
+            MarkChanged();
+            return true;
         }
 
         internal IReadOnlyList<AgentConsoleLogEntry> GetConsoleEntries()
@@ -124,9 +148,11 @@ namespace AgentForUnity.Editor.Application
                 return;
             }
 
-            var removed = _contexts.RemoveAll(item => string.Equals(item.Id, id, StringComparison.Ordinal)) > 0;
+            var item = _contexts.FirstOrDefault(value => string.Equals(value.Id, id, StringComparison.Ordinal));
+            var removed = item != null && _contexts.Remove(item);
             if (removed)
             {
+                DeleteDraftAttachmentFile(item);
                 SaveState();
                 MarkChanged();
             }
@@ -135,7 +161,10 @@ namespace AgentForUnity.Editor.Application
         internal async void Steer(string prompt)
         {
             prompt = prompt?.Trim();
-            if (!CanSteer || string.IsNullOrEmpty(prompt))
+            var submittedScreenshots = _contexts
+                .Where(item => item.Kind == AgentContextKind.Screenshot)
+                .ToList();
+            if (!CanSteer || (string.IsNullOrEmpty(prompt) && submittedScreenshots.Count == 0))
             {
                 return;
             }
@@ -144,7 +173,11 @@ namespace AgentForUnity.Editor.Application
             var generation = _connectionGeneration;
             var threadId = _threadId;
             var turnId = _turnId;
-            _messages.Add(new AgentChatMessage(AgentChatRole.User, prompt, turnId: turnId));
+            _messages.Add(new AgentChatMessage(
+                AgentChatRole.User,
+                prompt,
+                attachments: CreateChatAttachments(submittedScreenshots),
+                turnId: turnId));
             MarkChanged();
             try
             {
@@ -152,14 +185,12 @@ namespace AgentForUnity.Editor.Application
                 {
                     ["threadId"] = threadId,
                     ["expectedTurnId"] = turnId,
-                    ["input"] = new JArray(new JObject
-                    {
-                        ["type"] = "text",
-                        ["text"] = prompt
-                    })
+                    ["input"] = BuildTurnInput(prompt, submittedScreenshots)
                 });
                 if (IsCurrentTurnOperation(client, generation, threadId, turnId))
                 {
+                    CompleteContextSubmission(submittedScreenshots);
+                    SaveState();
                     StatusText = "Steering added";
                     MarkChanged();
                 }
@@ -431,8 +462,21 @@ namespace AgentForUnity.Editor.Application
             {
                 foreach (var draft in _persistedState.contextDrafts)
                 {
-                    if (draft == null || string.IsNullOrEmpty(draft.content) ||
+                    if (draft == null ||
                         !Enum.TryParse(draft.kind, out AgentContextKind kind))
+                    {
+                        continue;
+                    }
+
+                    if (kind == AgentContextKind.Screenshot)
+                    {
+                        if (!AgentClipboardImageCapture.IsManagedAttachmentPath(_projectRoot, draft.source) ||
+                            !File.Exists(draft.source))
+                        {
+                            continue;
+                        }
+                    }
+                    else if (string.IsNullOrEmpty(draft.content))
                     {
                         continue;
                     }
@@ -514,18 +558,38 @@ namespace AgentForUnity.Editor.Application
 
         private static JArray BuildTurnInput(string prompt, IReadOnlyList<AgentContextItem> contexts)
         {
-            var input = new JArray(new JObject
+            var input = new JArray();
+            if (!string.IsNullOrWhiteSpace(prompt))
             {
-                ["type"] = "text",
-                ["text"] = prompt
-            });
+                input.Add(new JObject
+                {
+                    ["type"] = "text",
+                    ["text"] = prompt
+                });
+            }
+
             if (contexts == null || contexts.Count == 0)
             {
                 return input;
             }
 
+            foreach (var screenshot in contexts.Where(item => item.Kind == AgentContextKind.Screenshot))
+            {
+                input.Add(new JObject
+                {
+                    ["type"] = "localImage",
+                    ["path"] = screenshot.Source
+                });
+            }
+
+            var textContexts = contexts.Where(item => item.Kind != AgentContextKind.Screenshot).ToList();
+            if (textContexts.Count == 0)
+            {
+                return input;
+            }
+
             var contextText = new StringBuilder(ContextPreamble + "\n");
-            foreach (var item in contexts)
+            foreach (var item in textContexts)
             {
                 contextText.Append("\n<context type=\"")
                     .Append(item.Kind)
@@ -566,6 +630,16 @@ namespace AgentForUnity.Editor.Application
         {
             var visibleParts = new List<string>();
             var restoredAttachments = new List<AgentChatAttachment>();
+            foreach (var image in content.OfType<JObject>()
+                         .Where(value => string.Equals(value.Value<string>("type"), "localImage", StringComparison.Ordinal)))
+            {
+                var path = image.Value<string>("path");
+                restoredAttachments.Add(new AgentChatAttachment(
+                    AgentContextKind.Screenshot,
+                    "Screenshot",
+                    path));
+            }
+
             foreach (var value in content.OfType<JObject>()
                          .Where(value => string.Equals(value.Value<string>("type"), "text", StringComparison.Ordinal))
                          .Select(value => value.Value<string>("text"))
@@ -705,8 +779,31 @@ namespace AgentForUnity.Editor.Application
                 return;
             }
 
-            _contexts.RemoveAll(existing => existing.Kind == item.Kind && item.Kind != AgentContextKind.File);
+            _contexts.RemoveAll(existing => existing.Kind == item.Kind &&
+                                            item.Kind != AgentContextKind.File &&
+                                            item.Kind != AgentContextKind.Screenshot);
             _contexts.Add(item);
+        }
+
+        private void DeleteDraftAttachmentFile(AgentContextItem item)
+        {
+            if (item == null || item.Kind != AgentContextKind.Screenshot ||
+                !AgentClipboardImageCapture.IsManagedAttachmentPath(_projectRoot, item.Source))
+            {
+                return;
+            }
+
+            try
+            {
+                if (File.Exists(item.Source))
+                {
+                    File.Delete(item.Source);
+                }
+            }
+            catch (Exception exception)
+            {
+                AddDiagnostic("Could not delete screenshot attachment: " + exception.Message);
+            }
         }
 
         private void ResetM1ForNewThread()

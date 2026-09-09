@@ -498,7 +498,7 @@ namespace AgentForUnity.Editor.Application
         internal async void Send(string prompt)
         {
             prompt = prompt?.Trim();
-            if (!CanSend || string.IsNullOrEmpty(prompt))
+            if (!CanSend || (string.IsNullOrEmpty(prompt) && !HasScreenshotAttachments))
             {
                 return;
             }
@@ -1347,7 +1347,7 @@ namespace AgentForUnity.Editor.Application
             }
 
             var text = ExtractRestoredUserMessage(content, out var attachments);
-            if (!string.IsNullOrEmpty(text))
+            if (!string.IsNullOrEmpty(text) || attachments.Count > 0)
             {
                 var message = new AgentChatMessage(
                     AgentChatRole.User,
