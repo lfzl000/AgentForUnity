@@ -94,19 +94,33 @@ namespace AgentForUnity.Editor.Application
             AgentChatRole role,
             string text,
             string itemId = null,
-            IReadOnlyList<AgentChatAttachment> attachments = null)
+            IReadOnlyList<AgentChatAttachment> attachments = null,
+            string turnId = null)
         {
             Role = role;
             Text = text ?? string.Empty;
             ItemId = itemId;
             Attachments = attachments ?? Array.Empty<AgentChatAttachment>();
+            TurnId = turnId;
         }
 
         internal AgentChatRole Role { get; }
         internal string Text { get; set; }
         internal string ItemId { get; }
         internal IReadOnlyList<AgentChatAttachment> Attachments { get; }
+        internal string TurnId { get; set; }
+        internal TimeSpan? TurnDuration { get; set; }
+        internal bool IsTurnCompleted { get; set; }
+        internal bool IsPendingTurnStart { get; set; }
+        internal IReadOnlyList<AgentActivityItem> Activities { get; private set; } = Array.Empty<AgentActivityItem>();
         internal bool IsStreaming { get; set; }
+
+        internal void SetActivities(IReadOnlyList<AgentActivityItem> activities)
+        {
+            Activities = activities == null
+                ? Array.Empty<AgentActivityItem>()
+                : new List<AgentActivityItem>(activities);
+        }
     }
 
     internal sealed class AgentModelInfo
@@ -132,15 +146,39 @@ namespace AgentForUnity.Editor.Application
         internal IReadOnlyList<string> SupportedReasoningEfforts { get; }
     }
 
+    internal sealed class AgentThreadInfo
+    {
+        internal AgentThreadInfo(string id, string name, string preview, long updatedAt, string status)
+        {
+            Id = id;
+            Name = name;
+            Preview = preview;
+            UpdatedAt = updatedAt;
+            Status = status;
+        }
+
+        internal string Id { get; }
+        internal string Name { get; }
+        internal string Preview { get; }
+        internal long UpdatedAt { get; }
+        internal string Status { get; }
+    }
+
     internal sealed partial class AgentForUnityService : IDisposable
     {
         private const int MaxDiagnostics = 200;
         private const int MaxRestoredMessages = 100;
         private const int MaxReconnectAttempts = 3;
         private const double ReconnectStabilitySeconds = 30d;
+        private const string UnityCompilationDeveloperInstructions =
+            "You are operating through Agent for Unity. Do not trigger Unity script compilation or perform " +
+            "compilation validation while a turn is active. Complete the requested work and end the turn first. " +
+            "After a completed turn with file changes, the plugin requests Unity script compilation. Do not claim " +
+            "that compilation validation ran during this turn; report it as pending until the plugin provides a result.";
 
         private readonly string _projectRoot;
         private readonly List<AgentModelInfo> _models = new List<AgentModelInfo>();
+        private readonly List<AgentThreadInfo> _threads = new List<AgentThreadInfo>();
         private readonly List<string> _reasoningEfforts = new List<string>();
         private readonly List<AgentChatMessage> _messages = new List<AgentChatMessage>();
         private readonly List<string> _diagnostics = new List<string>();
@@ -156,8 +194,12 @@ namespace AgentForUnity.Editor.Application
         private bool _disposed;
         private bool _operationInProgress;
         private bool _threadReady;
+        private bool _threadReadOnly;
+        private bool _threadsLoading;
+        private bool _turnStartPending;
         private bool _changePending;
         private bool _interruptWhenStarted;
+        private bool _domainReloadLockedForTurn;
         private int _connectionGeneration;
         private int _diagnosticsVersion;
         private int _operationGeneration;
@@ -171,6 +213,9 @@ namespace AgentForUnity.Editor.Application
         private string _selectedReasoningEffort;
         private string _threadId;
         private string _turnId;
+        private AgentChatMessage _pendingUserMessage;
+        private DateTime _turnStartedAtUtc;
+        private TimeSpan? _lastTurnDuration;
 
         internal AgentForUnityService()
         {
@@ -205,14 +250,24 @@ namespace AgentForUnity.Editor.Application
         internal string ProjectRoot => _projectRoot;
         internal string ThreadId => _threadId;
         internal string TurnId => _turnId;
+        internal TimeSpan? LastTurnDuration => _lastTurnDuration;
+        internal TimeSpan? ActiveTurnDuration => IsTurnStarting && _turnStartedAtUtc != default
+            ? DateTime.UtcNow - _turnStartedAtUtc
+            : (TimeSpan?)null;
+        internal bool IsTurnStarting => _turnStartPending || IsTurnActive;
         internal IReadOnlyList<AgentModelInfo> Models => _models;
+        internal IReadOnlyList<AgentThreadInfo> Threads => _threads;
         internal IReadOnlyList<string> ReasoningEfforts => _reasoningEfforts;
         internal IReadOnlyList<AgentChatMessage> Messages => _messages;
         internal IReadOnlyList<string> Diagnostics => _diagnostics;
         internal int DiagnosticsVersion => _diagnosticsVersion;
         internal bool CanSend => ConnectionState == AgentConnectionState.Ready &&
                                  !IsTurnActive &&
-                                 !_operationInProgress;
+                                 !_operationInProgress &&
+                                 !_threadReadOnly;
+        internal bool CanStartThread => ConnectionState == AgentConnectionState.Ready &&
+                                        !IsTurnActive &&
+                                        !_operationInProgress;
         internal bool CanInterrupt => ConnectionState == AgentConnectionState.Ready &&
                                       (TurnState == AgentTurnState.Running ||
                                        TurnState == AgentTurnState.Starting ||
@@ -226,6 +281,11 @@ namespace AgentForUnity.Editor.Application
                                       TurnState == AgentTurnState.WaitingForUserInput ||
                                       TurnState == AgentTurnState.Interrupting;
         internal bool CanChangePermissionMode => !_disposed && !IsTurnActive && !_operationInProgress;
+        internal bool CanSwitchThread => ConnectionState == AgentConnectionState.Ready &&
+                                         !IsTurnActive &&
+                                         !_operationInProgress;
+        internal bool CanRefreshThreads => ConnectionState == AgentConnectionState.Ready && !_threadsLoading;
+        internal bool ThreadsLoading => _threadsLoading;
 
         internal AgentPermissionMode PermissionMode
         {
@@ -326,6 +386,7 @@ namespace AgentForUnity.Editor.Application
             _connectionGeneration++;
             _connecting = false;
             DisposeClient();
+            ReleaseDomainReloadLock();
             ConnectionState = AgentConnectionState.Disconnected;
             StatusText = "Disconnected";
             MarkChanged();
@@ -333,7 +394,7 @@ namespace AgentForUnity.Editor.Application
 
         internal async void NewThread()
         {
-            if (!CanSend)
+            if (!CanStartThread)
             {
                 return;
             }
@@ -364,6 +425,76 @@ namespace AgentForUnity.Editor.Application
             }
         }
 
+        internal async void SwitchThread(string threadId)
+        {
+            if (!CanSwitchThread || string.IsNullOrEmpty(threadId) ||
+                string.Equals(threadId, _threadId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            var operation = BeginUserOperation();
+            var client = _client;
+            var connectionGeneration = _connectionGeneration;
+            StatusText = "Switching conversation";
+            MarkChanged();
+            try
+            {
+                await ResumeThreadAsync(client, connectionGeneration, threadId);
+                EnsureCurrentUserOperation(operation, client, connectionGeneration);
+                StatusText = IsTurnActive ? "Active conversation restored" : "Conversation restored";
+            }
+            catch (CodexProtocolException exception) when (IsActiveWriterConflict(exception))
+            {
+                if (!IsCurrentUserOperation(operation, client, connectionGeneration))
+                {
+                    return;
+                }
+
+                try
+                {
+                    await ReadThreadForDisplayAsync(client, connectionGeneration, threadId);
+                    EnsureCurrentUserOperation(operation, client, connectionGeneration);
+                    StatusText = "Conversation opened read-only - active in another Codex client";
+                }
+                catch (Exception readException)
+                {
+                    if (!IsCurrentUserOperation(operation, client, connectionGeneration))
+                    {
+                        return;
+                    }
+
+                    AddDiagnostic($"Could not open the active conversation read-only: {readException.Message}");
+                    StatusText = "Could not switch conversation";
+                }
+            }
+            catch (Exception exception)
+            {
+                if (!IsCurrentUserOperation(operation, client, connectionGeneration))
+                {
+                    return;
+                }
+
+                AddDiagnostic(exception.Message);
+                StatusText = "Could not switch conversation";
+            }
+            finally
+            {
+                EndUserOperation(operation);
+                MarkChanged();
+            }
+        }
+
+        internal void RefreshThreads()
+        {
+            if (!CanRefreshThreads)
+            {
+                return;
+            }
+
+            RefreshThreadsInBackground();
+        }
+
         internal async void Send(string prompt)
         {
             prompt = prompt?.Trim();
@@ -375,6 +506,19 @@ namespace AgentForUnity.Editor.Application
             var operation = BeginUserOperation();
             var client = _client;
             var connectionGeneration = _connectionGeneration;
+            _turnStartPending = true;
+            _turnStartedAtUtc = DateTime.UtcNow;
+            StatusText = "Preparing turn";
+            var submittedContexts = PrepareContextsForTurn();
+            _pendingUserMessage = new AgentChatMessage(
+                AgentChatRole.User,
+                prompt,
+                attachments: CreateChatAttachments(submittedContexts))
+            {
+                IsPendingTurnStart = true
+            };
+            _messages.Add(_pendingUserMessage);
+            MarkChanged();
             try
             {
                 if (!_threadReady)
@@ -402,14 +546,11 @@ namespace AgentForUnity.Editor.Application
                     return;
                 }
 
-                var submittedContexts = PrepareContextsForTurn();
-                _messages.Add(new AgentChatMessage(
-                    AgentChatRole.User,
-                    prompt,
-                    attachments: CreateChatAttachments(submittedContexts)));
                 TurnState = AgentTurnState.Starting;
+                LockDomainReloadForActiveTurn();
                 StatusText = "Starting turn";
                 _turnId = null;
+                _lastTurnDuration = null;
                 _streamingMessages.Clear();
                 SaveState();
                 MarkChanged();
@@ -430,11 +571,13 @@ namespace AgentForUnity.Editor.Application
 
                 var turn = result["turn"] as JObject;
                 _turnId = turn?.Value<string>("id") ?? _turnId;
+                AssignTurnToPendingUserMessage(_turnId);
                 if (TurnState == AgentTurnState.Starting)
                 {
                     TurnState = AgentTurnState.Running;
                     StatusText = "Working";
                 }
+                _turnStartPending = false;
 
                 CompleteContextSubmission(submittedContexts);
                 SaveState();
@@ -461,6 +604,8 @@ namespace AgentForUnity.Editor.Application
                 if (TurnState == AgentTurnState.Starting && !turnWasConfirmed)
                 {
                     TurnState = AgentTurnState.Failed;
+                    _turnStartPending = false;
+                    UnlockDomainReloadForInactiveTurn();
                     StatusText = "Turn failed to start";
                 }
                 else if (TurnState == AgentTurnState.Starting)
@@ -478,6 +623,15 @@ namespace AgentForUnity.Editor.Application
             }
             finally
             {
+                if (!IsTurnActive)
+                {
+                    _turnStartPending = false;
+                    if (_pendingUserMessage != null)
+                    {
+                        _pendingUserMessage.IsPendingTurnStart = false;
+                        _pendingUserMessage = null;
+                    }
+                }
                 EndUserOperation(operation);
             }
         }
@@ -570,6 +724,8 @@ namespace AgentForUnity.Editor.Application
                 _connectionStableSince = -1d;
             }
 
+            UpdateCompilationVerificationRequest();
+
             if (_changePending)
             {
                 _changePending = false;
@@ -587,6 +743,7 @@ namespace AgentForUnity.Editor.Application
             _disposed = true;
             CancelUserOperation();
             _connectionGeneration++;
+            ReleaseDomainReloadLock();
             SaveState();
             DisposeClient();
             ConnectionState = AgentConnectionState.Stopped;
@@ -684,6 +841,30 @@ namespace AgentForUnity.Editor.Application
                                 : "Connected - thread restored";
                         }
                     }
+                    catch (CodexProtocolException exception) when (IsActiveWriterConflict(exception))
+                    {
+                        if (!IsCurrentClient(newClient, generation))
+                        {
+                            return;
+                        }
+
+                        try
+                        {
+                            await ReadThreadForDisplayAsync(newClient, generation, _threadId);
+                            EnsureCurrentClient(newClient, generation);
+                            ConnectionState = AgentConnectionState.Ready;
+                            StatusText = "Conversation opened read-only - active in another Codex client";
+                        }
+                        catch (Exception readException)
+                        {
+                            if (!IsCurrentClient(newClient, generation))
+                            {
+                                return;
+                            }
+
+                            HandleThreadRecoveryFailure(readException);
+                        }
+                    }
                     catch (Exception exception)
                     {
                         if (!IsCurrentClient(newClient, generation))
@@ -691,29 +872,11 @@ namespace AgentForUnity.Editor.Application
                             return;
                         }
 
-                        _threadReady = false;
-                        // A failed resume can leave the persisted thread unusable (for example,
-                        // when the CLI's model catalog cache is stale). Forget it so the next
-                        // prompt can create a fresh thread instead of retrying the same failure.
-                        _threadId = null;
-                        if (IsTurnActive)
-                        {
-                            foreach (var streaming in _streamingMessages.Values)
-                            {
-                                streaming.IsStreaming = false;
-                            }
-
-                            _streamingMessages.Clear();
-                            _turnId = null;
-                            TurnState = AgentTurnState.Failed;
-                        }
-
-                        SaveState();
-                        ConnectionState = AgentConnectionState.Ready;
-                        StatusText = "Connected - thread recovery failed";
-                        AddDiagnostic(exception.Message);
+                        HandleThreadRecoveryFailure(exception);
                     }
                 }
+
+                RefreshThreadsInBackground();
             }
             catch (Exception exception)
             {
@@ -721,7 +884,7 @@ namespace AgentForUnity.Editor.Application
                 {
                     DisposeClient();
                     ConnectionState = AgentConnectionState.Faulted;
-                    StatusText = "Connection failed";
+                    StatusText = "Connection failed - update Agent for Unity if Codex was recently updated";
                     AddDiagnostic(exception.Message);
                     if (!userInitiated || _started)
                     {
@@ -814,6 +977,31 @@ namespace AgentForUnity.Editor.Application
             SaveState();
         }
 
+        private void HandleThreadRecoveryFailure(Exception exception)
+        {
+            _threadReady = false;
+            _threadReadOnly = false;
+            // Forget an unusable persisted thread so the next prompt can create a fresh one.
+            _threadId = null;
+            if (IsTurnActive)
+            {
+                foreach (var streaming in _streamingMessages.Values)
+                {
+                    streaming.IsStreaming = false;
+                }
+
+                _streamingMessages.Clear();
+                _turnId = null;
+                TurnState = AgentTurnState.Failed;
+                UnlockDomainReloadForInactiveTurn();
+            }
+
+            SaveState();
+            ConnectionState = AgentConnectionState.Ready;
+            StatusText = "Connected - thread recovery failed";
+            AddDiagnostic(exception.Message);
+        }
+
         private void ReadAccount(JObject result)
         {
             if (!(result["account"] is JObject account))
@@ -837,7 +1025,8 @@ namespace AgentForUnity.Editor.Application
             {
                 ["cwd"] = _projectRoot,
                 ["sandbox"] = AgentPermissionPolicy.GetThreadSandboxMode(_permissionMode),
-                ["approvalPolicy"] = AgentPermissionPolicy.GetApprovalPolicy(_permissionMode)
+                ["approvalPolicy"] = AgentPermissionPolicy.GetApprovalPolicy(_permissionMode),
+                ["developerInstructions"] = UnityCompilationDeveloperInstructions
             };
             AddOptional(parameters, "model", _selectedModelId);
 
@@ -853,6 +1042,7 @@ namespace AgentForUnity.Editor.Application
             _threadId = threadId;
             _turnId = null;
             _threadReady = true;
+            _threadReadOnly = false;
             ResetM1ForNewThread();
             if (clearMessages)
             {
@@ -862,13 +1052,24 @@ namespace AgentForUnity.Editor.Application
                 _streamingMessages.Clear();
             }
 
+            AddOrUpdateThread(thread);
+
             SaveState();
             MarkChanged();
+            RefreshThreadsInBackground();
         }
 
         private async System.Threading.Tasks.Task ResumeThreadAsync(CodexAppServerClient client, int generation)
         {
-            if (string.IsNullOrEmpty(_threadId))
+            await ResumeThreadAsync(client, generation, _threadId);
+        }
+
+        private async System.Threading.Tasks.Task ResumeThreadAsync(
+            CodexAppServerClient client,
+            int generation,
+            string threadId)
+        {
+            if (string.IsNullOrEmpty(threadId))
             {
                 return;
             }
@@ -877,10 +1078,11 @@ namespace AgentForUnity.Editor.Application
                 "thread/resume",
                 new JObject
                 {
-                    ["threadId"] = _threadId,
+                    ["threadId"] = threadId,
                     ["cwd"] = _projectRoot,
                     ["sandbox"] = AgentPermissionPolicy.GetThreadSandboxMode(_permissionMode),
-                    ["approvalPolicy"] = AgentPermissionPolicy.GetApprovalPolicy(_permissionMode)
+                    ["approvalPolicy"] = AgentPermissionPolicy.GetApprovalPolicy(_permissionMode),
+                    ["developerInstructions"] = UnityCompilationDeveloperInstructions
                 });
             EnsureCurrentClient(client, generation);
 
@@ -893,9 +1095,173 @@ namespace AgentForUnity.Editor.Application
 
             _threadId = resumedId;
             _threadReady = true;
+            _threadReadOnly = false;
             RebuildMessages(thread);
+            if (IsTurnActive)
+            {
+                LockDomainReloadForActiveTurn();
+            }
+            else
+            {
+                UnlockDomainReloadForInactiveTurn();
+            }
+            AddOrUpdateThread(thread);
             SaveState();
             MarkChanged();
+        }
+
+        private async System.Threading.Tasks.Task ReadThreadForDisplayAsync(
+            CodexAppServerClient client,
+            int generation,
+            string threadId)
+        {
+            var readResult = await client.SendRequestAsync(
+                "thread/read",
+                new JObject
+                {
+                    ["threadId"] = threadId,
+                    ["includeTurns"] = false
+                });
+            EnsureCurrentClient(client, generation);
+
+            var thread = readResult["thread"] as JObject;
+            if (thread == null)
+            {
+                throw new FormatException("thread/read returned no thread.");
+            }
+
+            var turnsResult = await client.SendRequestAsync(
+                "thread/turns/list",
+                new JObject
+                {
+                    ["threadId"] = threadId,
+                    ["limit"] = MaxRestoredMessages,
+                    ["sortDirection"] = "desc",
+                    ["itemsView"] = "summary"
+                });
+            EnsureCurrentClient(client, generation);
+
+            var turns = turnsResult["data"] as JArray ?? new JArray();
+            thread["turns"] = new JArray(turns.Reverse().Select(turn => turn.DeepClone()));
+            _threadId = threadId;
+            _threadReady = false;
+            _threadReadOnly = true;
+            RebuildMessages(thread);
+            AddOrUpdateThread(thread);
+            MarkChanged();
+        }
+
+        private static bool IsActiveWriterConflict(CodexProtocolException exception)
+        {
+            return exception != null &&
+                   exception.Code == -32600 &&
+                   exception.Message.IndexOf("already has an active writer", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private async void RefreshThreadsInBackground()
+        {
+            if (_threadsLoading || _client == null || ConnectionState != AgentConnectionState.Ready)
+            {
+                return;
+            }
+
+            _threadsLoading = true;
+            var client = _client;
+            var generation = _connectionGeneration;
+            MarkChanged();
+            try
+            {
+                var loadedThreads = new List<AgentThreadInfo>();
+                string cursor = null;
+                do
+                {
+                    var parameters = new JObject
+                    {
+                        ["limit"] = 100,
+                        ["cwd"] = _projectRoot,
+                        ["archived"] = false,
+                        ["sortKey"] = "updated_at",
+                        ["sortDirection"] = "desc"
+                    };
+                    if (!string.IsNullOrEmpty(cursor))
+                    {
+                        parameters["cursor"] = cursor;
+                    }
+
+                    var result = await client.SendRequestAsync("thread/list", parameters);
+                    EnsureCurrentClient(client, generation);
+                    if (result["data"] is JArray data)
+                    {
+                        foreach (var thread in data.OfType<JObject>())
+                        {
+                            var info = ReadThreadInfo(thread);
+                            if (info != null)
+                            {
+                                loadedThreads.Add(info);
+                            }
+                        }
+                    }
+
+                    cursor = result.Value<string>("nextCursor");
+                }
+                while (!string.IsNullOrEmpty(cursor));
+
+                EnsureCurrentClient(client, generation);
+                _threads.Clear();
+                _threads.AddRange(loadedThreads);
+            }
+            catch (Exception exception)
+            {
+                if (IsCurrentClient(client, generation))
+                {
+                    AddDiagnostic($"Could not load conversations: {exception.Message}");
+                }
+            }
+            finally
+            {
+                if (IsCurrentClient(client, generation))
+                {
+                    _threadsLoading = false;
+                    MarkChanged();
+                }
+            }
+        }
+
+        private void AddOrUpdateThread(JObject thread)
+        {
+            var info = ReadThreadInfo(thread);
+            if (info == null)
+            {
+                return;
+            }
+
+            _threads.RemoveAll(value => string.Equals(value.Id, info.Id, StringComparison.Ordinal));
+            _threads.Insert(0, info);
+        }
+
+        private static AgentThreadInfo ReadThreadInfo(JObject thread)
+        {
+            var id = thread?.Value<string>("id");
+            if (string.IsNullOrEmpty(id))
+            {
+                return null;
+            }
+
+            var historyMode = thread.Value<string>("historyMode");
+            if (!string.IsNullOrEmpty(historyMode) &&
+                !string.Equals(historyMode, "legacy", StringComparison.Ordinal) &&
+                !string.Equals(historyMode, "paginated", StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            var status = (thread["status"] as JObject)?.Value<string>("type") ?? string.Empty;
+            return new AgentThreadInfo(
+                id,
+                thread.Value<string>("name"),
+                thread.Value<string>("preview"),
+                thread.Value<long?>("updatedAt") ?? thread.Value<long?>("createdAt") ?? 0L,
+                status);
         }
 
         private void RebuildMessages(JObject thread)
@@ -908,6 +1274,11 @@ namespace AgentForUnity.Editor.Application
 
             if (!(thread?["turns"] is JArray turns))
             {
+                if (_pendingUserMessage != null)
+                {
+                    _messages.Add(_pendingUserMessage);
+                }
+
                 return;
             }
 
@@ -915,11 +1286,13 @@ namespace AgentForUnity.Editor.Application
             {
                 var turnId = turn.Value<string>("id");
                 var status = turn.Value<string>("status");
+                var isCompleted = !string.Equals(status, "inProgress", StringComparison.Ordinal);
+                var duration = ReadTurnDuration(turn);
                 if (turn["items"] is JArray items)
                 {
                     foreach (var item in items.OfType<JObject>())
                     {
-                        RestoreItem(item);
+                        RestoreItem(item, turnId, duration, isCompleted);
                     }
                 }
 
@@ -938,17 +1311,32 @@ namespace AgentForUnity.Editor.Application
             {
                 _messages.RemoveRange(0, _messages.Count - MaxRestoredMessages);
             }
+
+            if (_pendingUserMessage != null && !_messages.Contains(_pendingUserMessage))
+            {
+                _messages.Add(_pendingUserMessage);
+            }
         }
 
-        private void RestoreItem(JObject item)
+        private void RestoreItem(
+            JObject item,
+            string turnId,
+            TimeSpan? turnDuration,
+            bool isTurnCompleted)
         {
             var type = item.Value<string>("type");
             if (string.Equals(type, "agentMessage", StringComparison.Ordinal))
             {
-                _messages.Add(new AgentChatMessage(
+                var message = new AgentChatMessage(
                     AgentChatRole.Agent,
                     item.Value<string>("text") ?? string.Empty,
-                    item.Value<string>("id")));
+                    item.Value<string>("id"),
+                    turnId: turnId)
+                {
+                    TurnDuration = turnDuration,
+                    IsTurnCompleted = isTurnCompleted
+                };
+                _messages.Add(message);
                 return;
             }
 
@@ -961,12 +1349,36 @@ namespace AgentForUnity.Editor.Application
             var text = ExtractRestoredUserMessage(content, out var attachments);
             if (!string.IsNullOrEmpty(text))
             {
-                _messages.Add(new AgentChatMessage(
+                var message = new AgentChatMessage(
                     AgentChatRole.User,
                     text,
                     item.Value<string>("id"),
-                    attachments));
+                    attachments,
+                    turnId)
+                {
+                    TurnDuration = turnDuration,
+                    IsTurnCompleted = isTurnCompleted
+                };
+                _messages.Add(message);
             }
+        }
+
+        private static TimeSpan? ReadTurnDuration(JObject turn)
+        {
+            var durationMs = turn?.Value<long?>("durationMs");
+            if (durationMs.HasValue && durationMs.Value >= 0)
+            {
+                return TimeSpan.FromMilliseconds(durationMs.Value);
+            }
+
+            var startedAt = turn?.Value<long?>("startedAt");
+            var completedAt = turn?.Value<long?>("completedAt");
+            if (startedAt.HasValue && completedAt.HasValue && completedAt.Value >= startedAt.Value)
+            {
+                return TimeSpan.FromSeconds(completedAt.Value - startedAt.Value);
+            }
+
+            return null;
         }
 
         private void HandleNotification(CodexMessage message)
@@ -1020,6 +1432,11 @@ namespace AgentForUnity.Editor.Application
 
             var turn = parameters["turn"] as JObject;
             _turnId = turn?.Value<string>("id") ?? _turnId;
+            AssignTurnToPendingUserMessage(_turnId);
+            if (_turnStartedAtUtc == default)
+            {
+                _turnStartedAtUtc = DateTime.UtcNow;
+            }
             TurnState = AgentTurnState.Running;
             StatusText = "Working";
             HandleM1TurnStarted(_turnId);
@@ -1053,7 +1470,7 @@ namespace AgentForUnity.Editor.Application
                     string.Equals(value.ItemId, itemId, StringComparison.Ordinal));
                 if (chatMessage == null)
                 {
-                    chatMessage = new AgentChatMessage(AgentChatRole.Agent, string.Empty, itemId);
+                    chatMessage = new AgentChatMessage(AgentChatRole.Agent, string.Empty, itemId, turnId: _turnId);
                     _messages.Add(chatMessage);
                 }
 
@@ -1062,6 +1479,7 @@ namespace AgentForUnity.Editor.Application
             }
 
             chatMessage.Text += delta;
+            AttachActivitiesToAgentMessage(chatMessage);
             MarkChanged();
         }
 
@@ -1088,7 +1506,7 @@ namespace AgentForUnity.Editor.Application
                     string.Equals(value.ItemId, itemId, StringComparison.Ordinal));
                 if (chatMessage == null)
                 {
-                    chatMessage = new AgentChatMessage(AgentChatRole.Agent, finalText, itemId);
+                    chatMessage = new AgentChatMessage(AgentChatRole.Agent, finalText, itemId, turnId: _turnId);
                     _messages.Add(chatMessage);
                 }
                 else
@@ -1104,6 +1522,7 @@ namespace AgentForUnity.Editor.Application
                 _streamingMessages.Remove(itemId);
             }
 
+            AttachActivitiesToAgentMessage(chatMessage);
             MarkChanged();
         }
 
@@ -1114,7 +1533,7 @@ namespace AgentForUnity.Editor.Application
                 return;
             }
 
-            var completedTurnId = turn.Value<string>("id");
+            var completedTurnId = turn.Value<string>("id") ?? _turnId;
             if (!string.IsNullOrEmpty(_turnId) &&
                 !string.IsNullOrEmpty(completedTurnId) &&
                 !string.Equals(_turnId, completedTurnId, StringComparison.Ordinal))
@@ -1130,6 +1549,12 @@ namespace AgentForUnity.Editor.Application
             _streamingMessages.Clear();
             var status = turn.Value<string>("status") ?? "failed";
             TurnState = MapTurnState(status);
+            _lastTurnDuration = ReadTurnDuration(turn);
+            if (!_lastTurnDuration.HasValue && _turnStartedAtUtc != default)
+            {
+                _lastTurnDuration = DateTime.UtcNow - _turnStartedAtUtc;
+            }
+            RecordTurnDuration(completedTurnId);
             StatusText = TurnState == AgentTurnState.Completed
                 ? "Completed"
                 : TurnState == AgentTurnState.Interrupted
@@ -1142,9 +1567,51 @@ namespace AgentForUnity.Editor.Application
             }
 
             HandleM1TurnCompleted(completedTurnId, TurnState);
+            UnlockDomainReloadForInactiveTurn();
+            RequestCompilationVerificationAfterCompletedTurn(completedTurnId, TurnState);
 
             SaveState();
             MarkChanged();
+            RefreshThreadsInBackground();
+        }
+
+        private void AssignTurnToPendingUserMessage(string turnId)
+        {
+            if (string.IsNullOrEmpty(turnId))
+            {
+                return;
+            }
+
+            var userMessage = _messages.LastOrDefault(message =>
+                message.Role == AgentChatRole.User &&
+                string.IsNullOrEmpty(message.TurnId));
+            if (userMessage != null)
+            {
+                userMessage.TurnId = turnId;
+                userMessage.IsPendingTurnStart = false;
+                if (ReferenceEquals(userMessage, _pendingUserMessage))
+                {
+                    _pendingUserMessage = null;
+                }
+            }
+        }
+
+        private void RecordTurnDuration(string turnId)
+        {
+            if (string.IsNullOrEmpty(turnId))
+            {
+                return;
+            }
+
+            foreach (var message in _messages.Where(message => string.Equals(message.TurnId, turnId, StringComparison.Ordinal)))
+            {
+                if (_lastTurnDuration.HasValue)
+                {
+                    message.TurnDuration = _lastTurnDuration;
+                }
+
+                message.IsTurnCompleted = true;
+            }
         }
 
         private void HandleErrorNotification(JObject parameters)
@@ -1233,6 +1700,7 @@ namespace AgentForUnity.Editor.Application
         {
             var client = _client;
             _client = null;
+            _threadsLoading = false;
             if (client == null)
             {
                 return;
@@ -1244,6 +1712,7 @@ namespace AgentForUnity.Editor.Application
             client.Disconnected -= QueueDisconnected;
             client.Dispose();
             _threadReady = false;
+            _threadReadOnly = false;
         }
 
         private void QueueDisconnected(CodexAppServerClient client, string reason)
@@ -1339,6 +1808,7 @@ namespace AgentForUnity.Editor.Application
         {
             _operationGeneration++;
             _operationInProgress = false;
+            _turnStartPending = false;
         }
 
         private bool IsCurrentUserOperation(
@@ -1413,7 +1883,47 @@ namespace AgentForUnity.Editor.Application
 
         private void HandleDiagnostic(string message)
         {
+            if (!string.IsNullOrEmpty(message) &&
+                message.IndexOf("already has an active writer", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return;
+            }
+
             AddDiagnostic(message);
+        }
+
+        // Keep the App Server process alive while it owns a streaming turn. A queued script
+        // compilation may still run, but Unity defers the Domain Reload until this is released.
+        private void LockDomainReloadForActiveTurn()
+        {
+            if (_domainReloadLockedForTurn)
+            {
+                return;
+            }
+
+            EditorApplication.LockReloadAssemblies();
+            _domainReloadLockedForTurn = true;
+        }
+
+        private void UnlockDomainReloadForInactiveTurn()
+        {
+            if (!_domainReloadLockedForTurn || IsTurnActive)
+            {
+                return;
+            }
+
+            ReleaseDomainReloadLock();
+        }
+
+        private void ReleaseDomainReloadLock()
+        {
+            if (!_domainReloadLockedForTurn)
+            {
+                return;
+            }
+
+            EditorApplication.UnlockReloadAssemblies();
+            _domainReloadLockedForTurn = false;
         }
 
         private void MarkChanged()

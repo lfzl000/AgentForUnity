@@ -2,6 +2,21 @@
 
 All notable changes to Agent for Unity are documented in this file.
 
+## [0.3.0] - 2026-09-09
+
+### Added
+
+- A project-scoped list of resumable conversations with status, last-updated time, refresh, and thread switching.
+- Markdown rendering for Agent responses, including project-relative file links.
+- Per-message activity presentation for plans, reasoning summaries, tools, commands, and file changes.
+- A post-turn Unity script-compilation request for turns with a recorded Diff, plus a manual Compile Unity action when no compilation starts.
+
+### Changed
+
+- CLI discovery now selects the newest compatible candidate from `CODEX_EXECUTABLE`, `PATH`, and macOS fallback locations; the minimum supported Codex CLI version is `0.144.0`.
+- Conversation switching opens a thread read-only when another Codex client is its active writer.
+- The chat layout keeps conversation browsing, the composer, approval state, Diff, compilation state, and diagnostics available together.
+
 ## [0.2.0] - 2026-09-09
 
 ### Added

@@ -6,6 +6,8 @@ using System.Text;
 using AgentForUnity.Editor.Codex;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using UnityEditor;
+using UnityEditor.Compilation;
 using UnityEngine;
 
 namespace AgentForUnity.Editor.Application
@@ -18,6 +20,7 @@ namespace AgentForUnity.Editor.Application
         private const int MaxActivityItems = 100;
         private const int MaxActivityBodyCharacters = 64 * 1024;
         private const int MaxPersistedDiffCharacters = 2 * 1024 * 1024;
+        private const double CompilationStartGraceSeconds = 3d;
 
         private readonly List<AgentContextItem> _contexts = new List<AgentContextItem>();
         private readonly List<AgentActivityItem> _activities = new List<AgentActivityItem>();
@@ -30,6 +33,8 @@ namespace AgentForUnity.Editor.Application
         private string _lastDiff = string.Empty;
         private string _lastDiffTurnId;
         private bool _projectContextSent;
+        private string _compilationVerificationTurnId;
+        private double _compilationVerificationDeadline = -1d;
 
         internal IReadOnlyList<AgentContextItem> Contexts => _contexts;
         internal IReadOnlyList<AgentActivityItem> Activities => _activities;
@@ -41,6 +46,9 @@ namespace AgentForUnity.Editor.Application
                                   TurnState == AgentTurnState.Running &&
                                   !string.IsNullOrEmpty(_threadId) &&
                                   !string.IsNullOrEmpty(_turnId);
+        internal bool CanRequestUnityCompilation => !_disposed &&
+                                                    TurnState == AgentTurnState.Completed &&
+                                                    !EditorApplication.isCompiling;
 
         internal bool TryAddContext(AgentContextKind kind, string path, out string error)
         {
@@ -136,7 +144,7 @@ namespace AgentForUnity.Editor.Application
             var generation = _connectionGeneration;
             var threadId = _threadId;
             var turnId = _turnId;
-            _messages.Add(new AgentChatMessage(AgentChatRole.User, prompt));
+            _messages.Add(new AgentChatMessage(AgentChatRole.User, prompt, turnId: turnId));
             MarkChanged();
             try
             {
@@ -280,6 +288,83 @@ namespace AgentForUnity.Editor.Application
                  "Do not claim Play Mode validation.\n\n" + _compilation.Details);
         }
 
+        internal void RequestUnityCompilation()
+        {
+            if (!CanRequestUnityCompilation)
+            {
+                return;
+            }
+
+            CompilationPipeline.RequestScriptCompilation();
+        }
+
+        private void RequestCompilationVerificationAfterCompletedTurn(string turnId, AgentTurnState state)
+        {
+            if (state != AgentTurnState.Completed || string.IsNullOrEmpty(turnId) ||
+                !string.Equals(_lastDiffTurnId, turnId, StringComparison.Ordinal) ||
+                string.IsNullOrEmpty(_lastDiff) ||
+                IsCompilationRecordedForTurn(turnId))
+            {
+                return;
+            }
+
+            _compilationVerificationTurnId = turnId;
+            _compilationVerificationDeadline = -1d;
+            _compilation = new AgentCompilationResult
+            {
+                State = AgentCompilationState.Idle,
+                TurnId = turnId,
+                Summary = "Refreshing Unity assets before compilation"
+            };
+            AssetDatabase.Refresh();
+        }
+
+        private void UpdateCompilationVerificationRequest()
+        {
+            var turnId = _compilationVerificationTurnId;
+            if (string.IsNullOrEmpty(turnId))
+            {
+                return;
+            }
+
+            if (IsCompilationRecordedForTurn(turnId))
+            {
+                _compilationVerificationTurnId = null;
+                _compilationVerificationDeadline = -1d;
+                return;
+            }
+
+            if (EditorApplication.isUpdating || EditorApplication.isCompiling)
+            {
+                return;
+            }
+
+            if (_compilationVerificationDeadline < 0d)
+            {
+                _compilationVerificationDeadline = EditorApplication.timeSinceStartup + CompilationStartGraceSeconds;
+                _compilation.Summary = "Requesting Unity compilation after the completed turn";
+                CompilationPipeline.RequestScriptCompilation();
+                return;
+            }
+
+            if (EditorApplication.timeSinceStartup < _compilationVerificationDeadline)
+            {
+                return;
+            }
+
+            _compilationVerificationTurnId = null;
+            _compilationVerificationDeadline = -1d;
+
+            _compilation = new AgentCompilationResult
+            {
+                State = AgentCompilationState.Idle,
+                TurnId = turnId,
+                Summary = "Unity compilation did not start. Click Compile Unity to verify this completed turn."
+            };
+            SaveState();
+            MarkChanged();
+        }
+
         internal void HandleCompilationStarted()
         {
             if (_disposed)
@@ -290,6 +375,11 @@ namespace AgentForUnity.Editor.Application
             var triggeringTurnId = IsTurnActive
                 ? _turnId
                 : string.IsNullOrEmpty(_lastDiff) ? null : _lastDiffTurnId;
+            if (string.Equals(_compilationVerificationTurnId, triggeringTurnId, StringComparison.Ordinal))
+            {
+                _compilationVerificationTurnId = null;
+                _compilationVerificationDeadline = -1d;
+            }
             _compilation = new AgentCompilationResult
             {
                 State = AgentCompilationState.Compiling,
@@ -299,6 +389,14 @@ namespace AgentForUnity.Editor.Application
             _persistedState.compilationPending = true;
             SaveState();
             MarkChanged();
+        }
+
+        private bool IsCompilationRecordedForTurn(string turnId)
+        {
+            return string.Equals(_compilation.TurnId, turnId, StringComparison.Ordinal) &&
+                   (_compilation.State == AgentCompilationState.Compiling ||
+                    _compilation.State == AgentCompilationState.Passed ||
+                    _compilation.State == AgentCompilationState.Failed);
         }
 
         internal void HandleCompilationFinished(int errors, int warnings, string details)
@@ -989,6 +1087,7 @@ namespace AgentForUnity.Editor.Application
                 existing.Body = incoming.Body;
                 existing.Status = incoming.Status;
                 existing.IsStreaming = incoming.IsStreaming;
+                AttachActivitiesToCurrentAgentMessage();
                 return;
             }
 
@@ -999,6 +1098,26 @@ namespace AgentForUnity.Editor.Application
                 var first = _activities[0];
                 _activities.RemoveAt(0);
                 _activitiesById.Remove(first.Id);
+            }
+
+            AttachActivitiesToCurrentAgentMessage();
+        }
+
+        private void AttachActivitiesToCurrentAgentMessage()
+        {
+            var agentMessage = _messages.LastOrDefault(message =>
+                message.Role == AgentChatRole.Agent &&
+                string.Equals(message.TurnId, _turnId, StringComparison.Ordinal));
+            AttachActivitiesToAgentMessage(agentMessage);
+        }
+
+        private void AttachActivitiesToAgentMessage(AgentChatMessage agentMessage)
+        {
+            if (agentMessage != null &&
+                agentMessage.Role == AgentChatRole.Agent &&
+                string.Equals(agentMessage.TurnId, _turnId, StringComparison.Ordinal))
+            {
+                agentMessage.SetActivities(_activities);
             }
         }
 

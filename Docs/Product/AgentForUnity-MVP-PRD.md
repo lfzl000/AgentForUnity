@@ -4,8 +4,8 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档状态 | Draft v0.1 |
-| 更新日期 | 2026-09-08 |
+| 文档状态 | Implemented M1 baseline; M2 quality work in progress |
+| 更新日期 | 2026-09-09 |
 | 产品名称 | Agent for Unity |
 | 产品形态 | Unity Editor-only UPM Package |
 | 首个支持版本 | Unity 2022.3 LTS |
@@ -636,6 +636,10 @@ AgentForUnity.Editor.Tests
 - 文档、Samples 和升级说明。
 
 完成标准：新用户可根据引导独立完成安装和首个任务。
+
+当前进展：M1 基线已随 `0.2.0` 发布，M2 可用性与诊断质量工作已随 `0.3.0` 发布，包括会话列表与切换、Markdown 消息渲染、按消息归属的活动展示、CLI 多路径探测，以及完成 turn 后的脚本编译请求。这些能力不改变 M1 的权限和工作区边界。
+
+编译策略：Agent 在运行中的 turn 不应自行触发 Unity 编译或声称完成编译验证。对于带有文件 Diff 的已完成 turn，插件随后请求 Unity 脚本编译并记录 Unity 返回的状态；结果只代表编译反馈，Play Mode 和视觉验证仍需单独执行。
 
 ### M3 Unity 深度工具
 

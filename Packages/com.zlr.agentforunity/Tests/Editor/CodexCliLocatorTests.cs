@@ -8,16 +8,18 @@ namespace AgentForUnity.Editor.Tests
         [TestCase("codex-cli 0.144.0")]
         [TestCase("codex-cli 0.144.6")]
         [TestCase("codex 0.144.99")]
-        public void IsVersionSupported_AcceptsValidatedMinorRelease(string versionText)
+        [TestCase("codex-cli 0.153.4")]
+        [TestCase("codex-cli 0.154.0")]
+        [TestCase("codex-cli 1.0.0")]
+        public void IsVersionSupported_AcceptsCurrentOrNewerRelease(string versionText)
         {
             Assert.That(CodexCliLocator.IsVersionSupported(versionText, out var error), Is.True);
             Assert.That(error, Is.Null);
         }
 
         [TestCase("codex-cli 0.143.9")]
-        [TestCase("codex-cli 0.145.0")]
         [TestCase("not-a-version")]
-        public void IsVersionSupported_RejectsUnknownOrIncompatibleRelease(string versionText)
+        public void IsVersionSupported_RejectsUnknownOrTooOldRelease(string versionText)
         {
             Assert.That(CodexCliLocator.IsVersionSupported(versionText, out var error), Is.False);
             Assert.That(error, Is.Not.Empty);

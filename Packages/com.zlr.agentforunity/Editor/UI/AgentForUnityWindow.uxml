@@ -12,7 +12,6 @@
             <ui:VisualElement class="afu-header__actions">
                 <ui:Button name="reconnect-button" text="Reconnect" tooltip="Restart connection detection" />
                 <ui:Button name="disconnect-button" text="Disconnect" tooltip="Stop the Codex App Server connection" />
-                <ui:Button name="new-thread-button" text="New Thread" tooltip="Start a new project-scoped thread" class="afu-primary-button" />
             </ui:VisualElement>
         </ui:VisualElement>
 
@@ -22,15 +21,32 @@
         </ui:VisualElement>
 
         <ui:VisualElement class="afu-workspace">
+            <ui:VisualElement class="afu-conversations-pane">
+                <ui:VisualElement class="afu-conversations-header">
+                    <ui:Label text="Conversations" class="afu-conversations-title" />
+                    <ui:VisualElement class="afu-conversations-actions">
+                        <ui:Button name="new-thread-button" text="New Thread" tooltip="Start a new project-scoped thread" class="afu-conversations-new afu-primary-button" />
+                        <ui:Button name="refresh-threads-button" text="↻" tooltip="Reload conversations for this Unity project" class="afu-conversations-refresh" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:ScrollView name="conversations-scroll" class="afu-conversations-scroll">
+                    <ui:VisualElement name="conversations-list" class="afu-conversations-list" />
+                </ui:ScrollView>
+            </ui:VisualElement>
+
             <ui:VisualElement class="afu-chat-pane">
                 <ui:VisualElement class="afu-thread-bar">
                     <ui:Label text="Thread" class="afu-field-caption" />
                     <ui:Label name="thread-value" text="Not started" class="afu-thread-value" />
+                    <ui:Label name="turn-activity-indicator" class="afu-turn-activity" />
                     <ui:Label name="turn-state" text="Idle" class="afu-turn-state" />
+                    <ui:Button name="request-compile-button" text="Compile Unity" tooltip="Request Unity script compilation for this completed conversation" class="afu-request-compile" />
                 </ui:VisualElement>
 
                 <ui:ScrollView name="messages-scroll" class="afu-messages">
-                    <ui:VisualElement name="messages-list" class="afu-messages__list" />
+                    <ui:VisualElement name="messages-list" class="afu-messages__list">
+                        <ui:VisualElement name="messages-delivery-list" class="afu-messages__delivery-list" />
+                    </ui:VisualElement>
                 </ui:ScrollView>
 
                 <ui:VisualElement name="chat-reasoning-panel" class="afu-chat-reasoning">
@@ -85,10 +101,6 @@
                 </ui:VisualElement>
                 <ui:Foldout name="approvals-foldout" text="Approvals" value="true" class="afu-foldout">
                     <ui:ScrollView name="approvals-list" class="afu-card-list afu-card-list--approvals" />
-                </ui:Foldout>
-
-                <ui:Foldout name="activity-foldout" text="Activity" value="true" class="afu-foldout">
-                    <ui:ScrollView name="activity-list" class="afu-card-list" />
                 </ui:Foldout>
 
                 <ui:Foldout name="compile-foldout" text="Unity Compile" value="true" class="afu-foldout">

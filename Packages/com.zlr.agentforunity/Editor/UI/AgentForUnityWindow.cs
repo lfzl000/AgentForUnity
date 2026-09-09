@@ -17,6 +17,7 @@ namespace AgentForUnity.Editor.UI
         private const int MaxRenderedActivityItems = 40;
         private const int MaxRenderedActivityBodyCharacters = 2048;
         private const int MaxRenderedReasoningCharacters = 6000;
+        private static readonly string[] TurnActivityFrames = { "|", "/", "-", "\\" };
 
         private static readonly IReadOnlyList<string> PermissionChoices = new[]
         {
@@ -35,23 +36,26 @@ namespace AgentForUnity.Editor.UI
         private Label _statusText;
         private Label _projectSummary;
         private Label _turnState;
+        private Label _turnActivityIndicator;
         private Label _threadValue;
         private Label _cliPathValue;
         private Label _cliVersionValue;
         private Label _accountValue;
         private Label _projectValue;
+        private ScrollView _conversationsScroll;
+        private VisualElement _conversationsList;
         private DropdownField _modelField;
         private DropdownField _reasoningField;
         private DropdownField _permissionField;
         private ScrollView _messagesScroll;
         private ScrollView _detailsScroll;
         private VisualElement _messagesList;
+        private VisualElement _messagesDeliveryList;
         private VisualElement _chatReasoningCard;
         private Label _chatReasoningTitle;
         private Label _chatReasoningBody;
         private VisualElement _diagnosticsList;
         private VisualElement _contextsList;
-        private VisualElement _activityList;
         private VisualElement _approvalsList;
         private VisualElement _chatApprovalAlert;
         private VisualElement _chatApprovalActions;
@@ -63,7 +67,6 @@ namespace AgentForUnity.Editor.UI
         private VisualElement _diffFilesList;
         private Foldout _connectionFoldout;
         private Foldout _diagnosticsFoldout;
-        private Foldout _activityFoldout;
         private Foldout _approvalsFoldout;
         private Foldout _compileFoldout;
         private Foldout _diffFoldout;
@@ -74,6 +77,8 @@ namespace AgentForUnity.Editor.UI
         private Button _reconnectButton;
         private Button _disconnectButton;
         private Button _newThreadButton;
+        private Button _refreshThreadsButton;
+        private Button _requestCompileButton;
         private Button _interruptButton;
         private Button _sendButton;
         private Button _addSelectionButton;
@@ -94,13 +99,19 @@ namespace AgentForUnity.Editor.UI
         private int _lastMessageCount;
         private int _lastMessageTextLength;
         private string _lastContextSignature;
-        private string _lastActivitySignature;
         private string _lastApprovalSignature;
         private string _lastCompilationSignature;
         private string _lastDiff;
         private string _lastChatReasoningSignature;
+        private string _lastMessagePresentationSignature;
+        private string _lastThreadSignature;
+        private string _lastRenderedThreadId;
         private string _activeChatApprovalKey;
         private bool _hadPendingApprovals;
+        private IVisualElementScheduledItem _turnActivityAnimation;
+        private int _turnActivityFrame;
+        private Label _activeConversationIndicator;
+        private Label _activeProcessStatus;
 
         [MenuItem("Window/Agent for Unity")]
         private static void Open()
@@ -122,6 +133,7 @@ namespace AgentForUnity.Editor.UI
 
         private void OnDisable()
         {
+            StopTurnActivityAnimation();
             if (_service != null)
             {
                 _service.Changed -= OnServiceChanged;
@@ -130,6 +142,7 @@ namespace AgentForUnity.Editor.UI
 
         public void CreateGUI()
         {
+            StopTurnActivityAnimation();
             rootVisualElement.Clear();
             rootVisualElement.UnregisterCallback<GeometryChangedEvent>(OnGeometryChanged);
             _messageRows.Clear();
@@ -141,11 +154,13 @@ namespace AgentForUnity.Editor.UI
             _chatReasoningBody = null;
             _layoutInitialized = false;
             _lastContextSignature = null;
-            _lastActivitySignature = null;
             _lastApprovalSignature = null;
             _lastCompilationSignature = null;
             _lastDiff = null;
             _lastChatReasoningSignature = null;
+            _lastMessagePresentationSignature = null;
+            _lastThreadSignature = null;
+            _lastRenderedThreadId = null;
             _activeChatApprovalKey = null;
             _hadPendingApprovals = false;
 
@@ -190,23 +205,26 @@ namespace AgentForUnity.Editor.UI
             _statusText = rootVisualElement.Q<Label>("status-text");
             _projectSummary = rootVisualElement.Q<Label>("project-summary");
             _turnState = rootVisualElement.Q<Label>("turn-state");
+            _turnActivityIndicator = rootVisualElement.Q<Label>("turn-activity-indicator");
             _threadValue = rootVisualElement.Q<Label>("thread-value");
             _cliPathValue = rootVisualElement.Q<Label>("cli-path-value");
             _cliVersionValue = rootVisualElement.Q<Label>("cli-version-value");
             _accountValue = rootVisualElement.Q<Label>("account-value");
             _projectValue = rootVisualElement.Q<Label>("project-value");
+            _conversationsScroll = rootVisualElement.Q<ScrollView>("conversations-scroll");
+            _conversationsList = rootVisualElement.Q<VisualElement>("conversations-list");
             _modelField = rootVisualElement.Q<DropdownField>("model-field");
             _reasoningField = rootVisualElement.Q<DropdownField>("reasoning-field");
             _permissionField = rootVisualElement.Q<DropdownField>("permission-field");
             _messagesScroll = rootVisualElement.Q<ScrollView>("messages-scroll");
             _detailsScroll = rootVisualElement.Q<ScrollView>("details-scroll");
             _messagesList = rootVisualElement.Q<VisualElement>("messages-list");
+            _messagesDeliveryList = rootVisualElement.Q<VisualElement>("messages-delivery-list");
             _chatReasoningCard = rootVisualElement.Q<VisualElement>("chat-reasoning-panel");
             _chatReasoningTitle = rootVisualElement.Q<Label>("chat-reasoning-title");
             _chatReasoningBody = rootVisualElement.Q<Label>("chat-reasoning-body");
             _diagnosticsList = rootVisualElement.Q<VisualElement>("diagnostics-list");
             _contextsList = rootVisualElement.Q<VisualElement>("contexts-list");
-            _activityList = rootVisualElement.Q<VisualElement>("activity-list");
             _approvalsList = rootVisualElement.Q<VisualElement>("approvals-list");
             _chatApprovalAlert = rootVisualElement.Q<VisualElement>("chat-approval-alert");
             _chatApprovalActions = rootVisualElement.Q<VisualElement>("chat-approval-actions");
@@ -218,7 +236,6 @@ namespace AgentForUnity.Editor.UI
             _diffFilesList = rootVisualElement.Q<VisualElement>("diff-files-list");
             _connectionFoldout = rootVisualElement.Q<Foldout>("connection-foldout");
             _diagnosticsFoldout = rootVisualElement.Q<Foldout>("diagnostics-foldout");
-            _activityFoldout = rootVisualElement.Q<Foldout>("activity-foldout");
             _approvalsFoldout = rootVisualElement.Q<Foldout>("approvals-foldout");
             _compileFoldout = rootVisualElement.Q<Foldout>("compile-foldout");
             _diffFoldout = rootVisualElement.Q<Foldout>("diff-foldout");
@@ -229,6 +246,8 @@ namespace AgentForUnity.Editor.UI
             _reconnectButton = rootVisualElement.Q<Button>("reconnect-button");
             _disconnectButton = rootVisualElement.Q<Button>("disconnect-button");
             _newThreadButton = rootVisualElement.Q<Button>("new-thread-button");
+            _refreshThreadsButton = rootVisualElement.Q<Button>("refresh-threads-button");
+            _requestCompileButton = rootVisualElement.Q<Button>("request-compile-button");
             _interruptButton = rootVisualElement.Q<Button>("interrupt-button");
             _sendButton = rootVisualElement.Q<Button>("send-button");
             _addSelectionButton = rootVisualElement.Q<Button>("add-selection-button");
@@ -249,23 +268,26 @@ namespace AgentForUnity.Editor.UI
                    && _statusText != null
                    && _projectSummary != null
                    && _turnState != null
+                   && _turnActivityIndicator != null
                    && _threadValue != null
                    && _cliPathValue != null
                    && _cliVersionValue != null
                    && _accountValue != null
                    && _projectValue != null
+                   && _conversationsScroll != null
+                   && _conversationsList != null
                    && _modelField != null
                    && _reasoningField != null
                    && _permissionField != null
                    && _messagesScroll != null
                    && _detailsScroll != null
                    && _messagesList != null
+                   && _messagesDeliveryList != null
                    && _chatReasoningCard != null
                    && _chatReasoningTitle != null
                    && _chatReasoningBody != null
                    && _diagnosticsList != null
                    && _contextsList != null
-                   && _activityList != null
                    && _approvalsList != null
                    && _chatApprovalAlert != null
                    && _chatApprovalActions != null
@@ -277,7 +299,6 @@ namespace AgentForUnity.Editor.UI
                    && _diffFilesList != null
                    && _connectionFoldout != null
                    && _diagnosticsFoldout != null
-                   && _activityFoldout != null
                    && _approvalsFoldout != null
                    && _compileFoldout != null
                    && _diffFoldout != null
@@ -288,6 +309,8 @@ namespace AgentForUnity.Editor.UI
                    && _reconnectButton != null
                    && _disconnectButton != null
                    && _newThreadButton != null
+                   && _refreshThreadsButton != null
+                   && _requestCompileButton != null
                    && _interruptButton != null
                    && _sendButton != null
                    && _addSelectionButton != null
@@ -308,10 +331,21 @@ namespace AgentForUnity.Editor.UI
             _promptField.multiline = true;
             _diffText.multiline = true;
             _diffText.isReadOnly = true;
+            _messagesScroll.mode = ScrollViewMode.Vertical;
+            _messagesScroll.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
+            var messagesContent = _messagesScroll.contentContainer;
+            messagesContent.style.minWidth = 0;
+            messagesContent.style.width = Length.Percent(100f);
+            messagesContent.style.maxWidth = Length.Percent(100f);
+            _messagesList.style.minWidth = 0;
+            _messagesList.style.width = Length.Percent(100f);
+            _messagesList.style.maxWidth = Length.Percent(100f);
             _promptField.RegisterValueChangedCallback(_ => UpdateActionAvailability());
             _reconnectButton.clicked += () => _service.Reconnect();
             _disconnectButton.clicked += () => _service.Disconnect();
             _newThreadButton.clicked += () => _service.NewThread();
+            _refreshThreadsButton.clicked += () => _service.RefreshThreads();
+            _requestCompileButton.clicked += () => _service.RequestUnityCompilation();
             _interruptButton.clicked += () => _service.Interrupt();
             _sendButton.clicked += SendPrompt;
             _addSelectionButton.clicked += () => AddContext(AgentContextKind.Selection);
@@ -351,6 +385,10 @@ namespace AgentForUnity.Editor.UI
                 _projectSummary.text = ShortProjectName(_service.ProjectRoot);
                 _projectSummary.tooltip = DisplayValue(_service.ProjectRoot, "Project unavailable");
                 _turnState.text = DisplayValue(_service.TurnStateLabel, "Idle");
+                RefreshTurnActivity(_service.IsTurnStarting);
+                _requestCompileButton.style.display = _service.TurnState == AgentTurnState.Completed
+                    ? DisplayStyle.Flex
+                    : DisplayStyle.None;
 
                 SetLabelValue(_threadValue, _service.ThreadId, "Not started");
                 SetLabelValue(_cliPathValue, _service.CliPath, "Not found");
@@ -362,7 +400,23 @@ namespace AgentForUnity.Editor.UI
                 RefreshModels(_service.Models, _service.SelectedModelId);
                 RefreshReasoningEfforts(_service.ReasoningEfforts, _service.SelectedReasoningEffort);
                 RefreshPermissionMode(_service.PermissionMode);
-                RefreshMessages(_service.Messages);
+                RefreshConversations(
+                    _service.Threads,
+                    _service.ThreadId,
+                    _service.ThreadsLoading,
+                    _service.CanSwitchThread,
+                    _service.IsTurnStarting);
+                if (!string.Equals(_lastRenderedThreadId, _service.ThreadId, StringComparison.Ordinal))
+                {
+                    _lastRenderedThreadId = _service.ThreadId;
+                    _lastMessageCount = -1;
+                    _lastMessageTextLength = -1;
+                    _lastMessagePresentationSignature = null;
+                }
+                RefreshMessages(
+                    _service.Messages,
+                    _service.TurnState == AgentTurnState.Completed,
+                    _service.LastTurnDuration);
                 RefreshContexts(_service.Contexts);
                 RefreshActivities(_service.Activities);
                 RefreshApprovals(_service.Approvals);
@@ -375,6 +429,182 @@ namespace AgentForUnity.Editor.UI
             {
                 _isRefreshing = false;
             }
+        }
+
+        private void RefreshConversations(
+            IReadOnlyList<AgentThreadInfo> threads,
+            string selectedThreadId,
+            bool isLoading,
+            bool canSwitch,
+            bool hasActiveTurn)
+        {
+            var signatureParts = threads == null
+                ? new List<string>()
+                : threads.Select(thread => string.Join(":", new[]
+                {
+                    thread.Id,
+                    thread.Name,
+                    thread.Preview,
+                    Convert.ToString(thread.UpdatedAt),
+                    thread.Status
+                })).ToList();
+            var signature = string.Join("|", signatureParts) +
+                            "#" + selectedThreadId +
+                            "#" + isLoading +
+                            "#" + canSwitch +
+                            "#" + hasActiveTurn;
+            if (string.Equals(signature, _lastThreadSignature, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _lastThreadSignature = signature;
+            _activeConversationIndicator = null;
+            _conversationsList.Clear();
+            if (threads == null || threads.Count == 0)
+            {
+                var empty = new Label(isLoading ? "Loading conversations..." : "No conversations yet");
+                empty.AddToClassList("afu-conversations-empty");
+                _conversationsList.Add(empty);
+                return;
+            }
+
+            foreach (var thread in threads)
+            {
+                if (thread == null || string.IsNullOrEmpty(thread.Id))
+                {
+                    continue;
+                }
+
+                var threadId = thread.Id;
+                var selected = string.Equals(threadId, selectedThreadId, StringComparison.Ordinal);
+                var button = new Button(() => _service.SwitchThread(threadId))
+                {
+                    tooltip = ConversationTooltip(thread)
+                };
+                button.AddToClassList("afu-conversation");
+                button.EnableInClassList("afu-conversation--selected", selected);
+                button.SetEnabled(selected || canSwitch);
+
+                var titleRow = new VisualElement();
+                titleRow.AddToClassList("afu-conversation__title-row");
+                var title = new Label(ConversationTitle(thread));
+                title.AddToClassList("afu-conversation__title");
+                titleRow.Add(title);
+                if (selected && hasActiveTurn)
+                {
+                    _activeConversationIndicator = new Label(TurnActivityFrames[_turnActivityFrame]);
+                    _activeConversationIndicator.AddToClassList("afu-conversation__activity");
+                    titleRow.Add(_activeConversationIndicator);
+                }
+
+                button.Add(titleRow);
+
+                var meta = new Label(ConversationMeta(thread, selected));
+                meta.AddToClassList("afu-conversation__meta");
+                button.Add(meta);
+                _conversationsList.Add(button);
+            }
+        }
+
+        private void RefreshTurnActivity(bool isActive)
+        {
+            if (!isActive)
+            {
+                StopTurnActivityAnimation();
+                return;
+            }
+
+            _turnActivityIndicator.style.display = DisplayStyle.Flex;
+            if (_turnActivityAnimation != null)
+            {
+                return;
+            }
+
+            _turnActivityFrame = 0;
+            RefreshTurnActivityIndicators();
+            _turnActivityAnimation = _turnActivityIndicator.schedule.Execute(() =>
+            {
+                _turnActivityFrame = (_turnActivityFrame + 1) % TurnActivityFrames.Length;
+                RefreshTurnActivityIndicators();
+            }).Every(120);
+        }
+
+        private void StopTurnActivityAnimation()
+        {
+            _turnActivityAnimation?.Pause();
+            _turnActivityAnimation = null;
+            if (_turnActivityIndicator == null)
+            {
+                return;
+            }
+
+            _turnActivityIndicator.text = string.Empty;
+            _turnActivityIndicator.style.display = DisplayStyle.None;
+            if (_activeConversationIndicator != null)
+            {
+                _activeConversationIndicator.style.display = DisplayStyle.None;
+            }
+
+            _activeProcessStatus = null;
+        }
+
+        private void RefreshTurnActivityIndicators()
+        {
+            var frame = TurnActivityFrames[_turnActivityFrame];
+            _turnActivityIndicator.text = frame;
+            if (_activeConversationIndicator != null)
+            {
+                _activeConversationIndicator.text = frame;
+            }
+
+            if (_activeProcessStatus != null)
+            {
+                _activeProcessStatus.text = ActiveProcessStatus();
+            }
+        }
+
+        private static string ConversationTitle(AgentThreadInfo thread)
+        {
+            var title = string.IsNullOrWhiteSpace(thread.Name) ? thread.Preview : thread.Name;
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                return "New conversation";
+            }
+
+            return title.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        }
+
+        private static string ConversationMeta(AgentThreadInfo thread, bool selected)
+        {
+            var parts = new List<string>();
+            if (selected)
+            {
+                parts.Add("Current");
+            }
+
+            if (!string.IsNullOrWhiteSpace(thread.Status) &&
+                !string.Equals(thread.Status, "notLoaded", StringComparison.Ordinal))
+            {
+                parts.Add(thread.Status == "active" ? "Active" : "Idle");
+            }
+
+            if (thread.UpdatedAt > 0)
+            {
+                var epoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                var updated = epoch.AddSeconds(thread.UpdatedAt).ToLocalTime();
+                parts.Add(updated.Date == DateTime.Now.Date
+                    ? updated.ToString("HH:mm")
+                    : updated.ToString("MM-dd HH:mm"));
+            }
+
+            return string.Join(" · ", parts);
+        }
+
+        private static string ConversationTooltip(AgentThreadInfo thread)
+        {
+            var preview = string.IsNullOrWhiteSpace(thread.Preview) ? "No messages yet" : thread.Preview.Trim();
+            return preview + "\n\nThread: " + thread.Id;
         }
 
         private void RefreshModels(IReadOnlyList<AgentModelInfo> models, string selectedModelId)
@@ -447,34 +677,38 @@ namespace AgentForUnity.Editor.UI
             _permissionField.SetEnabled(_service.CanChangePermissionMode);
         }
 
-        private void RefreshMessages(IReadOnlyList<AgentChatMessage> messages)
+        private void RefreshMessages(
+            IReadOnlyList<AgentChatMessage> messages,
+            bool showCompletedTurn,
+            TimeSpan? turnDuration)
         {
             var messageCount = messages == null ? 0 : messages.Count;
             if (messageCount == 0)
             {
-                if (_messageRows.Count != 0 || _messagesList.childCount == 0)
+                if (_messageRows.Count != 0 || _messagesDeliveryList.childCount == 0)
                 {
                     _messageRows.Clear();
-                    _messagesList.Clear();
+                    _messagesDeliveryList.Clear();
                     var empty = new Label("No messages in this thread");
                     empty.AddToClassList("afu-empty-state");
-                    _messagesList.Add(empty);
+                    _messagesDeliveryList.Add(empty);
                 }
 
                 _lastMessageCount = 0;
                 _lastMessageTextLength = 0;
+                _lastMessagePresentationSignature = null;
                 return;
             }
 
             if (_messageRows.Count != messageCount)
             {
                 _messageRows.Clear();
-                _messagesList.Clear();
+                _messagesDeliveryList.Clear();
+                _lastMessagePresentationSignature = null;
                 for (var i = 0; i < messageCount; i++)
                 {
                     var row = CreateMessageRow();
                     _messageRows.Add(row);
-                    _messagesList.Add(row.Root);
                 }
             }
 
@@ -489,11 +723,22 @@ namespace AgentForUnity.Editor.UI
                 row.Root.EnableInClassList("afu-message--agent", normalizedRole == "Agent");
                 row.Role.text = normalizedRole;
                 RefreshMessageAttachments(row, message?.Attachments);
-                row.Body.text = message == null ? string.Empty : message.Text ?? string.Empty;
+                RefreshMessageActivities(row, message);
+                var text = message == null ? string.Empty : message.Text ?? string.Empty;
+                row.RawText = text;
+                row.CopyButton.SetEnabled(!string.IsNullOrEmpty(text));
+                if (!string.Equals(row.RenderedText, text, StringComparison.Ordinal))
+                {
+                    row.RenderedText = text;
+                    AgentMarkdownRenderer.Render(row.Body, text, OpenProjectLink);
+                }
                 row.Streaming.style.display = message != null && message.IsStreaming
                     ? DisplayStyle.Flex
                     : DisplayStyle.None;
             }
+
+            RefreshActiveProcessPresentation(messages);
+            ArrangeMessageRows(messages, showCompletedTurn, turnDuration);
 
             var lastMessage = messages[messageCount - 1];
             var lastTextLength = lastMessage == null || lastMessage.Text == null ? 0 : lastMessage.Text.Length;
@@ -501,9 +746,217 @@ namespace AgentForUnity.Editor.UI
             {
                 _lastMessageCount = messageCount;
                 _lastMessageTextLength = lastTextLength;
-                var lastRow = _messageRows[_messageRows.Count - 1].Root;
-                _messagesScroll.schedule.Execute(() => _messagesScroll.ScrollTo(lastRow));
+                ScrollMessagesToBottom();
             }
+        }
+
+        private void ScrollMessagesToBottom()
+        {
+            _messagesScroll.schedule.Execute(() =>
+            {
+                _messagesScroll.schedule.Execute(() =>
+                {
+                    var maximumOffset = Mathf.Max(
+                        0f,
+                        _messagesScroll.contentContainer.layout.height -
+                        _messagesScroll.contentViewport.layout.height);
+                    _messagesScroll.scrollOffset = new Vector2(_messagesScroll.scrollOffset.x, maximumOffset);
+                });
+            });
+        }
+
+        private void ArrangeMessageRows(
+            IReadOnlyList<AgentChatMessage> messages,
+            bool showCompletedTurn,
+            TimeSpan? turnDuration)
+        {
+            var signature = messages.Count + ":" + showCompletedTurn + ":" + turnDuration + ":" +
+                            (_service.IsTurnActive ? _service.TurnId : string.Empty) + ":" +
+                            string.Join("|", messages.Select(message =>
+                                (message?.TurnId ?? string.Empty) + ":" +
+                                (message?.TurnDuration?.Ticks ?? 0) + ":" +
+                                (message?.IsTurnCompleted == true ? "1" : "0")));
+            if (string.Equals(signature, _lastMessagePresentationSignature, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _lastMessagePresentationSignature = signature;
+            foreach (var row in _messageRows)
+            {
+                if (row.ActivityFoldout.parent != row.Root)
+                {
+                    row.Root.Add(row.ActivityFoldout);
+                }
+            }
+
+            _messagesDeliveryList.Clear();
+            var displayedRows = new HashSet<int>();
+            for (var i = 0; i < _messageRows.Count; i++)
+            {
+                if (displayedRows.Contains(i))
+                {
+                    continue;
+                }
+
+                var message = messages[i];
+                if (message?.Role == AgentChatRole.User &&
+                    !string.IsNullOrEmpty(message.TurnId) &&
+                    message.IsTurnCompleted)
+                {
+                    var finalMessageIndex = FindFinalAgentMessageIndex(messages, i, message.TurnId);
+                    var processEndIndex = finalMessageIndex;
+
+                    if (processEndIndex > i)
+                    {
+                        _messagesDeliveryList.Add(_messageRows[i].Root);
+                        displayedRows.Add(i);
+
+                        var process = new Foldout
+                        {
+                            text = ProcessTitle(message.TurnDuration),
+                            value = false
+                        };
+                        process.AddToClassList("afu-turn-process");
+
+                        for (var j = i + 1; j < processEndIndex; j++)
+                        {
+                            if (!string.Equals(messages[j]?.TurnId, message.TurnId, StringComparison.Ordinal))
+                            {
+                                continue;
+                            }
+
+                            if (messages[j]?.Role == AgentChatRole.User)
+                            {
+                                _messagesDeliveryList.Add(_messageRows[j].Root);
+                                displayedRows.Add(j);
+                                continue;
+                            }
+
+                            process.Add(_messageRows[j].Root);
+                            displayedRows.Add(j);
+                        }
+
+                        if (finalMessageIndex > i)
+                        {
+                            var finalRow = _messageRows[finalMessageIndex];
+                            if (messages[finalMessageIndex]?.Activities?.Count > 0)
+                            {
+                                finalRow.ActivityFoldout.RemoveFromHierarchy();
+                                process.Add(finalRow.ActivityFoldout);
+                            }
+
+                            _messagesDeliveryList.Add(process);
+                            _messagesDeliveryList.Add(finalRow.Root);
+                            displayedRows.Add(finalMessageIndex);
+                        }
+                        else
+                        {
+                            _messagesDeliveryList.Add(process);
+                        }
+                        continue;
+                    }
+                }
+
+                _messagesDeliveryList.Add(_messageRows[i].Root);
+                displayedRows.Add(i);
+            }
+        }
+
+        private static int FindFinalAgentMessageIndex(
+            IReadOnlyList<AgentChatMessage> messages,
+            int userMessageIndex,
+            string turnId)
+        {
+            var finalMessageIndex = -1;
+            for (var i = userMessageIndex + 1; i < messages.Count; i++)
+            {
+                var message = messages[i];
+                if (!string.Equals(message?.TurnId, turnId, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (message.Role == AgentChatRole.Agent)
+                {
+                    finalMessageIndex = i;
+                }
+            }
+
+            return finalMessageIndex;
+        }
+
+        private void RefreshActiveProcessPresentation(IReadOnlyList<AgentChatMessage> messages)
+        {
+            _activeProcessStatus = null;
+            for (var i = 0; i < messages.Count; i++)
+            {
+                var message = messages[i];
+                var row = _messageRows[i];
+                var isCurrentTurnMessage = _service.IsTurnStarting && message != null &&
+                                           (message.IsPendingTurnStart ||
+                                            (!string.IsNullOrEmpty(_service.TurnId) &&
+                                             string.Equals(message.TurnId, _service.TurnId, StringComparison.Ordinal)));
+                var isActiveProcessMessage = isCurrentTurnMessage && message.Role == AgentChatRole.Agent;
+                row.Root.EnableInClassList("afu-message--process", isActiveProcessMessage);
+                if (isCurrentTurnMessage)
+                {
+                    _activeProcessStatus = row.Streaming;
+                }
+            }
+
+            if (_activeProcessStatus != null)
+            {
+                _activeProcessStatus.text = ActiveProcessStatus();
+                _activeProcessStatus.style.display = DisplayStyle.Flex;
+            }
+        }
+
+        private string ActiveProcessStatus()
+        {
+            return $"{FormatElapsed(_service.ActiveTurnDuration)} {TurnActivityFrames[_turnActivityFrame]}";
+        }
+
+        private static string ProcessTitle(TimeSpan? duration)
+        {
+            return $"Process conversation · Total {FormatDuration(duration)}";
+        }
+
+        private static string FormatElapsed(TimeSpan? duration)
+        {
+            var value = duration.GetValueOrDefault();
+            if (value.TotalHours >= 1)
+            {
+                return $"{(int)value.TotalHours}h {value.Minutes:D2}m {value.Seconds:D2}s";
+            }
+
+            if (value.TotalMinutes >= 1)
+            {
+                return $"{value.Minutes}m {value.Seconds:D2}s";
+            }
+
+            return $"{Math.Max(0, (int)value.TotalSeconds)}s";
+        }
+
+        private static string FormatDuration(TimeSpan? duration)
+        {
+            if (!duration.HasValue)
+            {
+                return "unknown";
+            }
+
+            var value = duration.Value;
+            if (value.TotalHours >= 1)
+            {
+                return $"{(int)value.TotalHours}h {value.Minutes:D2}m {value.Seconds:D2}s";
+            }
+
+            if (value.TotalMinutes >= 1)
+            {
+                return $"{value.Minutes}m {value.Seconds:D2}s";
+            }
+
+            return $"{Math.Max(0, (int)Math.Ceiling(value.TotalSeconds))}s";
         }
 
         private void RefreshContexts(IReadOnlyList<AgentContextItem> contexts)
@@ -577,6 +1030,86 @@ namespace AgentForUnity.Editor.UI
             }
         }
 
+        private void RefreshMessageActivities(MessageRow row, AgentChatMessage message)
+        {
+            var activities = message?.Activities;
+            var signature = (message?.Role.ToString() ?? string.Empty) + ":" +
+                            (activities == null
+                                ? string.Empty
+                                : string.Join("|", activities.Select(activity =>
+                                    activity.Id + ":" + activity.Status + ":" + activity.IsStreaming + ":" +
+                                    (activity.Body ?? string.Empty).GetHashCode())));
+            if (string.Equals(signature, row.ActivitySignature, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            row.ActivitySignature = signature;
+            var isAgentMessage = message != null && message.Role == AgentChatRole.Agent;
+            var count = activities?.Count ?? 0;
+            row.ActivityFoldout.style.display = isAgentMessage && count > 0
+                ? DisplayStyle.Flex
+                : DisplayStyle.None;
+            row.ActivityList.Clear();
+            if (!isAgentMessage || count == 0)
+            {
+                return;
+            }
+
+            var skippedCount = Math.Max(0, count - MaxRenderedActivityItems);
+            var latestActivity = activities[count - 1];
+            var summary = ActivitySummary(latestActivity);
+            row.ActivityFoldout.text = skippedCount == 0
+                ? $"Activity ({count}) · {summary}"
+                : $"Activity ({count}, latest {MaxRenderedActivityItems}) · {summary}";
+            if (skippedCount > 0)
+            {
+                AddEmptyCard(row.ActivityList, $"Showing the latest {MaxRenderedActivityItems} of {count} activity items.");
+            }
+
+            foreach (var activity in activities.Skip(skippedCount))
+            {
+                var detail = new Foldout { text = ActivitySummary(activity), value = false };
+                detail.AddToClassList("afu-message-activity__detail");
+                var status = new Label(activity.Status);
+                status.AddToClassList("afu-message-activity__status");
+                detail.Add(status);
+                var body = new Label(TruncateForDisplay(activity.Body, MaxRenderedActivityBodyCharacters))
+                {
+                    enableRichText = false
+                };
+                body.AddToClassList("afu-card__body");
+                detail.Add(body);
+                row.ActivityList.Add(detail);
+            }
+
+            ScrollMessagesToBottom();
+        }
+
+        private static string ActivitySummary(AgentActivityItem activity)
+        {
+            var body = (activity?.Body ?? string.Empty)
+                .Replace('\r', ' ')
+                .Replace('\n', ' ')
+                .Trim();
+            if (body.Length == 0)
+            {
+                body = activity?.Status ?? string.Empty;
+            }
+
+            const int maximumLength = 72;
+            if (body.Length > maximumLength)
+            {
+                body = body.Substring(0, maximumLength) + "...";
+            }
+
+            return string.IsNullOrEmpty(activity?.Title)
+                ? body
+                : string.IsNullOrEmpty(body)
+                    ? activity.Title
+                    : activity.Title + ": " + body;
+        }
+
         private void RefreshChatReasoning(IReadOnlyList<AgentActivityItem> activities)
         {
             if (_chatReasoningCard == null || _chatReasoningTitle == null || _chatReasoningBody == null)
@@ -614,48 +1147,6 @@ namespace AgentForUnity.Editor.UI
         private void RefreshActivities(IReadOnlyList<AgentActivityItem> activities)
         {
             RefreshChatReasoning(activities);
-            var signature = activities == null
-                ? string.Empty
-                : string.Join("|", activities.Select(item =>
-                    item.Id + ":" + item.Status + ":" + item.IsStreaming + ":" + (item.Body?.Length ?? 0)));
-            if (signature == _lastActivitySignature)
-            {
-                return;
-            }
-
-            _lastActivitySignature = signature;
-            _activityList.Clear();
-            var count = activities?.Count ?? 0;
-            var skippedCount = Math.Max(0, count - MaxRenderedActivityItems);
-            _activityFoldout.text = count == 0
-                ? "Activity"
-                : skippedCount == 0
-                    ? $"Activity ({count})"
-                    : $"Activity ({count}, latest {MaxRenderedActivityItems})";
-            if (count == 0)
-            {
-                AddEmptyCard(_activityList, "No activity in this turn");
-                return;
-            }
-
-            if (skippedCount > 0)
-            {
-                AddEmptyCard(_activityList, $"Showing the latest {MaxRenderedActivityItems} of {count} activity items.");
-            }
-
-            foreach (var activity in activities.Skip(skippedCount))
-            {
-                var card = new VisualElement();
-                card.AddToClassList("afu-card");
-                card.Add(CardTitle($"{activity.Title} · {activity.Status}"));
-                var body = new Label(TruncateForDisplay(activity.Body, MaxRenderedActivityBodyCharacters))
-                {
-                    enableRichText = false
-                };
-                body.AddToClassList("afu-card__body");
-                card.Add(body);
-                _activityList.Add(card);
-            }
         }
 
         private static string TruncateForDisplay(string value, int maximumCharacters)
@@ -742,14 +1233,12 @@ namespace AgentForUnity.Editor.UI
             }
 
             _hadPendingApprovals = true;
-            _activityFoldout.SetValueWithoutNotify(false);
             _detailsScroll.schedule.Execute(() => _detailsScroll.ScrollTo(_approvalAlert));
         }
 
         private void FocusPendingApproval()
         {
             _approvalsFoldout.SetValueWithoutNotify(true);
-            _activityFoldout.SetValueWithoutNotify(false);
             _detailsScroll.schedule.Execute(() => _detailsScroll.ScrollTo(_approvalAlert));
         }
 
@@ -950,19 +1439,75 @@ namespace AgentForUnity.Editor.UI
 
         private void OpenProjectPath(string path)
         {
+            OpenProjectPathAtLine(path, 1);
+        }
+
+        private void OpenProjectLink(string target)
+        {
+            var value = (target ?? string.Empty).Trim();
+            if (value.Length == 0)
+            {
+                return;
+            }
+
+            if (Uri.TryCreate(value, UriKind.Absolute, out var uri))
+            {
+                if (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+                {
+                    UnityEngine.Application.OpenURL(value);
+                    return;
+                }
+
+                if (uri.Scheme == Uri.UriSchemeFile)
+                {
+                    value = uri.LocalPath;
+                }
+            }
+
+            var line = 1;
+            var fragmentIndex = value.IndexOf("#L", StringComparison.OrdinalIgnoreCase);
+            if (fragmentIndex >= 0)
+            {
+                int.TryParse(value.Substring(fragmentIndex + 2), out line);
+                value = value.Substring(0, fragmentIndex);
+            }
+
+            var separator = value.LastIndexOf(':');
+            if (separator > 0 && separator < value.Length - 1 &&
+                int.TryParse(value.Substring(separator + 1), out var suffixLine))
+            {
+                line = suffixLine;
+                value = value.Substring(0, separator);
+            }
+
+            OpenProjectPathAtLine(Uri.UnescapeDataString(value), Math.Max(1, line));
+        }
+
+        private void OpenProjectPathAtLine(string path, int line)
+        {
             var normalized = (path ?? string.Empty).Replace('\\', '/');
+            if (Path.IsPathRooted(normalized))
+            {
+                if (File.Exists(normalized))
+                {
+                    UnityEditorInternal.InternalEditorUtility.OpenFileAtLineExternal(normalized, line);
+                }
+
+                return;
+            }
+
             var asset = AssetDatabase.LoadMainAssetAtPath(normalized);
             if (asset != null)
             {
                 EditorGUIUtility.PingObject(asset);
-                AssetDatabase.OpenAsset(asset);
+                AssetDatabase.OpenAsset(asset, line);
                 return;
             }
 
             var absolute = Path.Combine(_service.ProjectRoot, normalized);
             if (File.Exists(absolute))
             {
-                UnityEditorInternal.InternalEditorUtility.OpenFileAtLineExternal(absolute, 1);
+                UnityEditorInternal.InternalEditorUtility.OpenFileAtLineExternal(absolute, line);
             }
         }
 
@@ -1053,7 +1598,9 @@ namespace AgentForUnity.Editor.UI
             _sendButton.SetEnabled((_service.CanSend || _service.CanSteer) && hasPrompt);
             _interruptButton.SetEnabled(_service.CanInterrupt);
             _disconnectButton.SetEnabled(_service.CanDisconnect);
-            _newThreadButton.SetEnabled(_service.CanSend);
+            _newThreadButton.SetEnabled(_service.CanStartThread);
+            _refreshThreadsButton.SetEnabled(_service.CanRefreshThreads);
+            _requestCompileButton.SetEnabled(_service.CanRequestUnityCompilation);
             _continueFixButton.SetEnabled(_service.Compilation.CanContinueFix && _service.CanSend);
         }
 
@@ -1190,9 +1737,18 @@ namespace AgentForUnity.Editor.UI
             streaming.AddToClassList("afu-message__streaming");
             header.Add(streaming);
 
-            var body = new Label();
-            body.enableRichText = false;
+            var copy = new Button { text = "⧉", tooltip = "Copy message text" };
+            copy.AddToClassList("afu-message__copy");
+            header.Add(copy);
+
+            var body = new VisualElement();
             body.AddToClassList("afu-message__body");
+
+            var activityFoldout = new Foldout { value = false };
+            activityFoldout.AddToClassList("afu-message-activity");
+            var activityList = new VisualElement();
+            activityList.AddToClassList("afu-message-activity__list");
+            activityFoldout.Add(activityList);
 
             var attachments = new VisualElement();
             attachments.AddToClassList("afu-message__attachments");
@@ -1200,7 +1756,19 @@ namespace AgentForUnity.Editor.UI
             root.Add(header);
             root.Add(attachments);
             root.Add(body);
-            return new MessageRow(root, role, streaming, attachments, body);
+            root.Add(activityFoldout);
+            var row = new MessageRow(root, role, streaming, attachments, body, copy, activityFoldout, activityList);
+            copy.clicked += () => EditorGUIUtility.systemCopyBuffer = row.RawText ?? string.Empty;
+            body.RegisterCallback<ContextualMenuPopulateEvent>(evt =>
+            {
+                evt.menu.AppendAction(
+                    "Copy message text",
+                    _ => EditorGUIUtility.systemCopyBuffer = row.RawText ?? string.Empty,
+                    _ => string.IsNullOrEmpty(row.RawText)
+                        ? DropdownMenuAction.Status.Disabled
+                        : DropdownMenuAction.Status.Normal);
+            });
+            return row;
         }
 
         private static string NormalizeRole(string role)
@@ -1264,9 +1832,6 @@ namespace AgentForUnity.Editor.UI
             var headerActions = Element(null, "afu-header__actions");
             headerActions.Add(Button("reconnect-button", "Reconnect", "Restart connection detection"));
             headerActions.Add(Button("disconnect-button", "Disconnect", "Stop the Codex App Server connection"));
-            var newThread = Button("new-thread-button", "New Thread", "Start a new project-scoped thread");
-            newThread.AddToClassList("afu-primary-button");
-            headerActions.Add(newThread);
             header.Add(headerActions);
             windowRoot.Add(header);
 
@@ -1276,16 +1841,44 @@ namespace AgentForUnity.Editor.UI
             windowRoot.Add(statusBar);
 
             var workspace = Element(null, "afu-workspace");
+            var conversationsPane = Element(null, "afu-conversations-pane");
+            var conversationsHeader = Element(null, "afu-conversations-header");
+            conversationsHeader.Add(Label(null, "Conversations", "afu-conversations-title"));
+            var conversationsActions = Element(null, "afu-conversations-actions");
+            var newThread = Button("new-thread-button", "New Thread", "Start a new project-scoped thread");
+            newThread.AddToClassList("afu-conversations-new");
+            newThread.AddToClassList("afu-primary-button");
+            conversationsActions.Add(newThread);
+            var refreshThreads = Button("refresh-threads-button", "↻", "Reload conversations for this Unity project");
+            refreshThreads.AddToClassList("afu-conversations-refresh");
+            conversationsActions.Add(refreshThreads);
+            conversationsHeader.Add(conversationsActions);
+            conversationsPane.Add(conversationsHeader);
+            var conversationsScroll = new ScrollView { name = "conversations-scroll" };
+            conversationsScroll.AddToClassList("afu-conversations-scroll");
+            conversationsScroll.Add(Element("conversations-list", "afu-conversations-list"));
+            conversationsPane.Add(conversationsScroll);
+            workspace.Add(conversationsPane);
+
             var chatPane = Element(null, "afu-chat-pane");
             var threadBar = Element(null, "afu-thread-bar");
             threadBar.Add(Label(null, "Thread", "afu-field-caption"));
             threadBar.Add(Label("thread-value", "Not started", "afu-thread-value"));
+            threadBar.Add(Label("turn-activity-indicator", string.Empty, "afu-turn-activity"));
             threadBar.Add(Label("turn-state", "Idle", "afu-turn-state"));
+            var requestCompile = Button(
+                "request-compile-button",
+                "Compile Unity",
+                "Request Unity script compilation for this completed conversation");
+            requestCompile.AddToClassList("afu-request-compile");
+            threadBar.Add(requestCompile);
             chatPane.Add(threadBar);
 
             var messageScroll = new ScrollView { name = "messages-scroll" };
             messageScroll.AddToClassList("afu-messages");
-            messageScroll.Add(Element("messages-list", "afu-messages__list"));
+            var messagesList = Element("messages-list", "afu-messages__list");
+            messagesList.Add(Element("messages-delivery-list", "afu-messages__delivery-list"));
+            messageScroll.Add(messagesList);
             chatPane.Add(messageScroll);
 
             var chatReasoning = Element("chat-reasoning-panel", "afu-chat-reasoning");
@@ -1377,13 +1970,6 @@ namespace AgentForUnity.Editor.UI
             approvalsFoldout.Add(approvalsList);
             detailsPane.Add(approvalsFoldout);
 
-            var activityFoldout = new Foldout { name = "activity-foldout", text = "Activity", value = true };
-            activityFoldout.AddToClassList("afu-foldout");
-            var activityList = new ScrollView { name = "activity-list" };
-            activityList.AddToClassList("afu-card-list");
-            activityFoldout.Add(activityList);
-            detailsPane.Add(activityFoldout);
-
             var compileFoldout = new Foldout { name = "compile-foldout", text = "Unity Compile", value = true };
             compileFoldout.AddToClassList("afu-foldout");
             compileFoldout.Add(Label("compile-summary", "No compilation result", "afu-detail-value"));
@@ -1423,10 +2009,23 @@ namespace AgentForUnity.Editor.UI
         {
             _windowRoot.style.flexGrow = 1f;
             var workspace = rootVisualElement.Q<VisualElement>(className: "afu-workspace");
+            var conversationsPane = rootVisualElement.Q<VisualElement>(className: "afu-conversations-pane");
+            var conversationsHeader = rootVisualElement.Q<VisualElement>(className: "afu-conversations-header");
+            var conversationsActions = rootVisualElement.Q<VisualElement>(className: "afu-conversations-actions");
             var chatPane = rootVisualElement.Q<VisualElement>(className: "afu-chat-pane");
             var detailsPane = rootVisualElement.Q<VisualElement>(className: "afu-details-pane");
             workspace.style.flexGrow = 1f;
             workspace.style.flexDirection = FlexDirection.Row;
+            conversationsPane.style.width = 220f;
+            conversationsHeader.style.minHeight = 64f;
+            conversationsHeader.style.flexDirection = FlexDirection.Column;
+            conversationsActions.style.flexDirection = FlexDirection.Row;
+            _newThreadButton.style.flexGrow = 1f;
+            _newThreadButton.style.minHeight = 24f;
+            _refreshThreadsButton.style.width = 26f;
+            _refreshThreadsButton.style.minWidth = 26f;
+            _refreshThreadsButton.style.height = 24f;
+            _refreshThreadsButton.style.minHeight = 24f;
             chatPane.style.flexGrow = 1f;
             _messagesScroll.style.flexGrow = 1f;
             _promptField.style.minHeight = 70f;
@@ -1477,21 +2076,33 @@ namespace AgentForUnity.Editor.UI
                 Label role,
                 Label streaming,
                 VisualElement attachments,
-                Label body)
+                VisualElement body,
+                Button copyButton,
+                Foldout activityFoldout,
+                VisualElement activityList)
             {
                 Root = root;
                 Role = role;
                 Streaming = streaming;
                 Attachments = attachments;
                 Body = body;
+                CopyButton = copyButton;
+                ActivityFoldout = activityFoldout;
+                ActivityList = activityList;
             }
 
             internal VisualElement Root { get; }
             internal Label Role { get; }
             internal Label Streaming { get; }
             internal VisualElement Attachments { get; }
-            internal Label Body { get; }
+            internal VisualElement Body { get; }
+            internal Button CopyButton { get; }
+            internal Foldout ActivityFoldout { get; }
+            internal VisualElement ActivityList { get; }
             internal string AttachmentSignature { get; set; }
+            internal string ActivitySignature { get; set; }
+            internal string RenderedText { get; set; }
+            internal string RawText { get; set; }
         }
     }
 

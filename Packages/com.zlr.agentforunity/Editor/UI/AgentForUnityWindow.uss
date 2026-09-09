@@ -119,6 +119,126 @@
     flex-direction: row;
 }
 
+.afu-conversations-pane {
+    width: 220px;
+    min-width: 180px;
+    min-height: 0;
+    flex-shrink: 0;
+    border-right-width: 1px;
+    border-right-color: rgba(128, 128, 128, 0.25);
+    background-color: rgba(0, 0, 0, 0.025);
+}
+
+.afu-conversations-header {
+    min-height: 64px;
+    padding: 6px 7px 6px 10px;
+    flex-direction: column;
+    align-items: stretch;
+    border-bottom-width: 1px;
+    border-bottom-color: rgba(128, 128, 128, 0.20);
+}
+
+.afu-conversations-title {
+    -unity-font-style: bold;
+    margin-bottom: 4px;
+}
+
+.afu-conversations-actions {
+    flex-direction: row;
+    align-items: center;
+    width: 100%;
+}
+
+.afu-conversations-new {
+    flex-grow: 1;
+    min-height: 24px;
+    margin-right: 4px;
+    font-size: 11px;
+}
+
+.afu-conversations-refresh {
+    width: 26px;
+    min-width: 26px;
+    height: 24px;
+    min-height: 24px;
+    padding-left: 0;
+    padding-right: 0;
+    font-size: 15px;
+    -unity-text-align: middle-center;
+}
+
+.afu-conversations-scroll {
+    flex-grow: 1;
+    min-height: 0;
+}
+
+.afu-conversations-list {
+    padding: 6px;
+}
+
+.afu-conversation {
+    min-height: 54px;
+    margin-bottom: 4px;
+    padding: 7px 8px;
+    align-items: stretch;
+    background-color: rgba(0, 0, 0, 0.04);
+    border-left-width: 3px;
+    border-left-color: rgba(128, 128, 128, 0.28);
+    border-radius: 4px;
+}
+
+.afu-conversation:hover {
+    background-color: rgba(45, 132, 210, 0.10);
+}
+
+.afu-conversation--selected {
+    border-left-color: rgb(45, 132, 210);
+    background-color: rgba(45, 132, 210, 0.15);
+}
+
+.afu-conversation__title {
+    flex-grow: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    -unity-text-align: middle-left;
+    -unity-font-style: bold;
+    font-size: 11px;
+}
+
+.afu-conversation__title-row {
+    flex-direction: row;
+    align-items: center;
+    min-width: 0;
+}
+
+.afu-conversation__activity {
+    width: 12px;
+    min-width: 12px;
+    margin-left: 5px;
+    color: rgb(45, 132, 210);
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+}
+
+.afu-conversation__meta {
+    margin-top: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    -unity-text-align: middle-left;
+    font-size: 9px;
+    opacity: 0.58;
+}
+
+.afu-conversations-empty {
+    margin: 16px 8px;
+    white-space: normal;
+    -unity-text-align: middle-center;
+    opacity: 0.55;
+}
+
 .afu-chat-pane {
     flex-grow: 1;
     flex-shrink: 1;
@@ -154,6 +274,20 @@
     -unity-font-style: bold;
 }
 
+.afu-turn-activity {
+    width: 12px;
+    margin-left: 8px;
+    color: rgb(45, 132, 210);
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+}
+
+.afu-request-compile {
+    min-height: 22px;
+    margin-left: 6px;
+    font-size: 10px;
+}
+
 .afu-thread-bar {
     min-height: 28px;
     padding: 4px 10px;
@@ -185,8 +319,34 @@
     min-height: 100px;
 }
 
+.afu-messages .unity-scroll-view__content-viewport,
+.afu-messages .unity-scroll-view__content-container {
+    min-width: 0;
+    max-width: 100%;
+}
+
 .afu-messages__list {
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
     padding: 10px;
+}
+
+.afu-turn-process {
+    margin-bottom: 8px;
+    padding: 6px 8px;
+    border-width: 1px;
+    border-color: rgba(204, 137, 38, 0.30);
+    border-left-width: 3px;
+    border-left-color: rgb(204, 137, 38);
+    border-radius: 4px;
+    background-color: rgba(204, 137, 38, 0.055);
+    font-size: 10px;
+}
+
+.afu-turn-process .afu-message--agent,
+.afu-message.afu-message--process {
+    border-left-color: rgb(204, 137, 38);
 }
 
 .afu-empty-state {
@@ -196,6 +356,9 @@
 }
 
 .afu-message {
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
     margin-bottom: 8px;
     padding: 8px 10px;
     border-left-width: 3px;
@@ -235,8 +398,214 @@
     opacity: 0.62;
 }
 
+.afu-message__copy {
+    min-width: 22px;
+    width: 22px;
+    height: 20px;
+    min-height: 20px;
+    margin-left: auto;
+    padding: 0;
+    font-size: 12px;
+    -unity-text-align: middle-center;
+}
+
 .afu-message__body {
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    flex-shrink: 1;
     white-space: normal;
+}
+
+.afu-message-activity {
+    display: none;
+    margin-top: 8px;
+    padding-top: 5px;
+    border-top-width: 1px;
+    border-top-color: rgba(128, 128, 128, 0.18);
+    font-size: 10px;
+}
+
+.afu-message-activity__list {
+    margin-top: 4px;
+}
+
+.afu-message-activity .unity-foldout__text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.afu-message-activity__detail {
+    margin: 2px 0 5px 0;
+    padding: 5px 6px;
+    border-left-width: 2px;
+    border-left-color: rgba(128, 128, 128, 0.48);
+    background-color: rgba(0, 0, 0, 0.04);
+}
+
+.afu-message-activity__status {
+    margin-bottom: 4px;
+    font-size: 9px;
+    opacity: 0.58;
+}
+
+.afu-markdown__paragraph,
+.afu-markdown__list,
+.afu-markdown__quote,
+.afu-markdown__code-block,
+.afu-markdown__heading {
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    margin-bottom: 7px;
+}
+
+.afu-markdown__heading {
+    min-width: 0;
+    max-width: 100%;
+    flex-shrink: 1;
+    white-space: normal;
+    -unity-font-style: bold;
+}
+
+.afu-markdown__heading--h1 {
+    margin-top: 4px;
+    font-size: 16px;
+}
+
+.afu-markdown__heading--h2 {
+    margin-top: 3px;
+    font-size: 14px;
+}
+
+.afu-markdown__heading--h3 {
+    margin-top: 2px;
+    font-size: 12px;
+}
+
+.afu-markdown__list-item {
+    min-width: 0;
+    max-width: 100%;
+    flex-shrink: 1;
+    flex-direction: row;
+    margin-bottom: 3px;
+}
+
+.afu-markdown__list-marker {
+    min-width: 22px;
+    opacity: 0.72;
+    -unity-text-align: upper-right;
+}
+
+.afu-markdown__list-text {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+    white-space: normal;
+}
+
+.afu-markdown__link {
+    min-width: 0;
+    max-width: 100%;
+    flex-grow: 1;
+    flex-shrink: 1;
+    margin: 0;
+    padding: 0;
+    color: rgb(90, 169, 230);
+    background-color: rgba(0, 0, 0, 0);
+    -unity-text-align: middle-left;
+    white-space: normal;
+}
+
+.afu-markdown__link:hover {
+    color: rgb(133, 196, 245);
+    background-color: rgba(90, 169, 230, 0.10);
+}
+
+.afu-markdown__inline {
+    flex-direction: column;
+}
+
+.afu-markdown__inline-line {
+    min-width: 0;
+    max-width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.afu-markdown__inline-text {
+    min-width: 0;
+    max-width: 100%;
+    flex-shrink: 1;
+    white-space: normal;
+}
+
+.afu-markdown__inline-link {
+    width: auto;
+    min-width: 0;
+    min-height: 0;
+    flex-grow: 0;
+    flex-shrink: 0;
+    margin: 0 1px;
+    padding: 0;
+    border-width: 0;
+    border-radius: 0;
+}
+
+.afu-markdown__quote {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    padding: 4px 8px;
+    border-left-width: 3px;
+    border-left-color: rgba(90, 169, 230, 0.75);
+    background-color: rgba(90, 169, 230, 0.08);
+}
+
+.afu-markdown__quote-text {
+    min-width: 0;
+    max-width: 100%;
+    flex-shrink: 1;
+    white-space: normal;
+    opacity: 0.82;
+}
+
+.afu-markdown__code-block {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    padding: 6px 8px;
+    background-color: rgba(0, 0, 0, 0.16);
+    border-width: 1px;
+    border-color: rgba(128, 128, 128, 0.26);
+    border-radius: 3px;
+}
+
+.afu-markdown__code-language {
+    min-width: 0;
+    max-width: 100%;
+    flex-shrink: 1;
+    margin-bottom: 4px;
+    white-space: normal;
+    font-size: 9px;
+    opacity: 0.58;
+    -unity-font-style: bold;
+}
+
+.afu-markdown__code {
+    min-width: 0;
+    max-width: 100%;
+    flex-shrink: 1;
+    white-space: normal;
+    font-size: 11px;
+}
+
+.afu-markdown__rule {
+    height: 1px;
+    margin: 8px 0;
+    background-color: rgba(128, 128, 128, 0.35);
 }
 
 .afu-message__attachments {
@@ -647,6 +1016,17 @@
 
 .afu-root.afu--compact .afu-workspace {
     flex-direction: column;
+}
+
+.afu-root.afu--compact .afu-conversations-pane {
+    width: auto;
+    min-width: 0;
+    height: 164px;
+    min-height: 120px;
+    flex-shrink: 0;
+    border-right-width: 0;
+    border-bottom-width: 1px;
+    border-bottom-color: rgba(128, 128, 128, 0.25);
 }
 
 .afu-root.afu--compact .afu-select {

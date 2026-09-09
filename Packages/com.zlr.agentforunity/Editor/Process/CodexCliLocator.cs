@@ -26,13 +26,13 @@ namespace AgentForUnity.Editor.Codex
     internal static class CodexCliLocator
     {
         private static readonly Version MinimumSupportedVersion = new Version(0, 144, 0);
-        private static readonly Version MaximumSupportedVersion = new Version(0, 145, 0);
         private static readonly Regex VersionPattern = new Regex(
             @"(?<!\d)(\d+)\.(\d+)\.(\d+)(?!\d)",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         private static readonly string[] MacFallbackPaths =
         {
+            "/Applications/ChatGPT.app/Contents/Resources/codex",
             "/opt/homebrew/bin/codex",
             "/usr/local/bin/codex",
             "/usr/bin/codex"
@@ -47,6 +47,8 @@ namespace AgentForUnity.Editor.Codex
         {
             var candidates = new List<string>();
             CodexCliInfo firstError = null;
+            CodexCliInfo newestAvailable = null;
+            Version newestVersion = null;
             AddCandidate(candidates, Environment.GetEnvironmentVariable("CODEX_EXECUTABLE"));
 
             var executableName = Environment.OSVersion.Platform == PlatformID.Win32NT ? "codex.exe" : "codex";
@@ -71,7 +73,14 @@ namespace AgentForUnity.Editor.Codex
                 var versionResult = ReadVersion(candidate);
                 if (versionResult.IsAvailable)
                 {
-                    return versionResult;
+                    if (TryParseVersion(versionResult.Version, out var version) &&
+                        (newestVersion == null || version.CompareTo(newestVersion) > 0))
+                    {
+                        newestAvailable = versionResult;
+                        newestVersion = version;
+                    }
+
+                    continue;
                 }
 
                 if (firstError == null)
@@ -80,7 +89,7 @@ namespace AgentForUnity.Editor.Codex
                 }
             }
 
-            return firstError ?? new CodexCliInfo(
+            return newestAvailable ?? firstError ?? new CodexCliInfo(
                 null,
                 null,
                 "Codex CLI was not found. Install Codex, or set CODEX_EXECUTABLE to its absolute path, then reconnect.");
@@ -142,22 +151,27 @@ namespace AgentForUnity.Editor.Codex
 
         internal static bool IsVersionSupported(string versionText, out string error)
         {
-            var match = VersionPattern.Match(versionText ?? string.Empty);
-            if (!match.Success || !Version.TryParse(match.Value, out var version))
+            if (!TryParseVersion(versionText, out var version))
             {
                 error = $"Could not parse the Codex CLI version from '{versionText ?? string.Empty}'.";
                 return false;
             }
 
-            if (version.CompareTo(MinimumSupportedVersion) < 0 ||
-                version.CompareTo(MaximumSupportedVersion) >= 0)
+            if (version.CompareTo(MinimumSupportedVersion) < 0)
             {
-                error = $"Codex CLI {version} is not supported by Agent for Unity 0.2.0. Install Codex CLI 0.144.x.";
+                error = $"Codex CLI {version} is not supported by Agent for Unity 0.3.0. Install Codex CLI 0.144.0 or later.";
                 return false;
             }
 
             error = null;
             return true;
+        }
+
+        private static bool TryParseVersion(string versionText, out Version version)
+        {
+            version = null;
+            var match = VersionPattern.Match(versionText ?? string.Empty);
+            return match.Success && Version.TryParse(match.Value, out version);
         }
 
         private static char[] PathSeparator()
