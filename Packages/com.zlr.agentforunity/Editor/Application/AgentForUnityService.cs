@@ -19,6 +19,7 @@ namespace AgentForUnity.Editor.Application
         Ready,
         Recovering,
         Faulted,
+        Disconnected,
         Stopped
     }
 
@@ -27,6 +28,8 @@ namespace AgentForUnity.Editor.Application
         Idle,
         Starting,
         Running,
+        WaitingForApproval,
+        WaitingForUserInput,
         Interrupting,
         Completed,
         Failed,
@@ -40,18 +43,69 @@ namespace AgentForUnity.Editor.Application
         System
     }
 
+    internal enum AgentPermissionMode
+    {
+        AskApproval,
+        CodexDecides,
+        FullAccess
+    }
+
+    internal static class AgentPermissionPolicy
+    {
+        internal static string GetApprovalPolicy(AgentPermissionMode mode)
+        {
+            switch (mode)
+            {
+                case AgentPermissionMode.AskApproval:
+                    return "untrusted";
+                case AgentPermissionMode.FullAccess:
+                    return "never";
+                default:
+                    return "on-request";
+            }
+        }
+
+        internal static string GetThreadSandboxMode(AgentPermissionMode mode)
+        {
+            return mode == AgentPermissionMode.FullAccess
+                ? "danger-full-access"
+                : "workspace-write";
+        }
+
+        internal static JObject CreateSandboxPolicy(AgentPermissionMode mode, string projectRoot)
+        {
+            if (mode == AgentPermissionMode.FullAccess)
+            {
+                return new JObject { ["type"] = "dangerFullAccess" };
+            }
+
+            return new JObject
+            {
+                ["type"] = "workspaceWrite",
+                ["writableRoots"] = new JArray(projectRoot),
+                ["networkAccess"] = false
+            };
+        }
+    }
+
     internal sealed class AgentChatMessage
     {
-        internal AgentChatMessage(AgentChatRole role, string text, string itemId = null)
+        internal AgentChatMessage(
+            AgentChatRole role,
+            string text,
+            string itemId = null,
+            IReadOnlyList<AgentChatAttachment> attachments = null)
         {
             Role = role;
             Text = text ?? string.Empty;
             ItemId = itemId;
+            Attachments = attachments ?? Array.Empty<AgentChatAttachment>();
         }
 
         internal AgentChatRole Role { get; }
         internal string Text { get; set; }
         internal string ItemId { get; }
+        internal IReadOnlyList<AgentChatAttachment> Attachments { get; }
         internal bool IsStreaming { get; set; }
     }
 
@@ -78,7 +132,7 @@ namespace AgentForUnity.Editor.Application
         internal IReadOnlyList<string> SupportedReasoningEfforts { get; }
     }
 
-    internal sealed class AgentForUnityService : IDisposable
+    internal sealed partial class AgentForUnityService : IDisposable
     {
         private const int MaxDiagnostics = 200;
         private const int MaxRestoredMessages = 100;
@@ -112,6 +166,7 @@ namespace AgentForUnity.Editor.Application
         private double _connectionStableSince = -1d;
         private CodexAppServerClient _pendingDisconnectedClient;
         private string _pendingDisconnect;
+        private AgentPermissionMode _permissionMode;
         private string _selectedModelId;
         private string _selectedReasoningEffort;
         private string _threadId;
@@ -125,6 +180,11 @@ namespace AgentForUnity.Editor.Application
             _turnId = _persistedState.turnId;
             _selectedModelId = _persistedState.selectedModelId;
             _selectedReasoningEffort = _persistedState.selectedReasoningEffort;
+            if (!Enum.TryParse(_persistedState.permissionMode, true, out _permissionMode))
+            {
+                _permissionMode = AgentPermissionMode.CodexDecides;
+            }
+            InitializeM1State();
             if (!string.IsNullOrEmpty(loadError))
             {
                 AddDiagnostic(loadError);
@@ -154,11 +214,34 @@ namespace AgentForUnity.Editor.Application
                                  !IsTurnActive &&
                                  !_operationInProgress;
         internal bool CanInterrupt => ConnectionState == AgentConnectionState.Ready &&
-                                      (TurnState == AgentTurnState.Running || TurnState == AgentTurnState.Starting) &&
+                                      (TurnState == AgentTurnState.Running ||
+                                       TurnState == AgentTurnState.Starting ||
+                                       TurnState == AgentTurnState.WaitingForApproval ||
+                                       TurnState == AgentTurnState.WaitingForUserInput) &&
                                       TurnState != AgentTurnState.Interrupting;
+        internal bool CanDisconnect => !_disposed && _started;
         internal bool IsTurnActive => TurnState == AgentTurnState.Starting ||
                                       TurnState == AgentTurnState.Running ||
+                                      TurnState == AgentTurnState.WaitingForApproval ||
+                                      TurnState == AgentTurnState.WaitingForUserInput ||
                                       TurnState == AgentTurnState.Interrupting;
+        internal bool CanChangePermissionMode => !_disposed && !IsTurnActive && !_operationInProgress;
+
+        internal AgentPermissionMode PermissionMode
+        {
+            get => _permissionMode;
+            set
+            {
+                if (_permissionMode == value || !CanChangePermissionMode)
+                {
+                    return;
+                }
+
+                _permissionMode = value;
+                SaveState();
+                MarkChanged();
+            }
+        }
 
         internal string SelectedModelId
         {
@@ -195,7 +278,7 @@ namespace AgentForUnity.Editor.Application
 
         internal void EnsureStarted()
         {
-            if (_disposed || _started)
+            if (_disposed || _started || ConnectionState == AgentConnectionState.Disconnected)
             {
                 return;
             }
@@ -223,6 +306,29 @@ namespace AgentForUnity.Editor.Application
             DisposeClient();
             _connecting = false;
             ConnectInternal(true);
+        }
+
+        internal void Disconnect()
+        {
+            if (_disposed || !_started)
+            {
+                return;
+            }
+
+            _started = false;
+            _reconnectAttempts = 0;
+            _nextReconnectTime = -1d;
+            _connectionStableSince = -1d;
+            CancelUserOperation();
+            _interruptWhenStarted = false;
+            _pendingDisconnectedClient = null;
+            _pendingDisconnect = null;
+            _connectionGeneration++;
+            _connecting = false;
+            DisposeClient();
+            ConnectionState = AgentConnectionState.Disconnected;
+            StatusText = "Disconnected";
+            MarkChanged();
         }
 
         internal async void NewThread()
@@ -296,7 +402,11 @@ namespace AgentForUnity.Editor.Application
                     return;
                 }
 
-                _messages.Add(new AgentChatMessage(AgentChatRole.User, prompt));
+                var submittedContexts = PrepareContextsForTurn();
+                _messages.Add(new AgentChatMessage(
+                    AgentChatRole.User,
+                    prompt,
+                    attachments: CreateChatAttachments(submittedContexts)));
                 TurnState = AgentTurnState.Starting;
                 StatusText = "Starting turn";
                 _turnId = null;
@@ -307,13 +417,10 @@ namespace AgentForUnity.Editor.Application
                 var parameters = new JObject
                 {
                     ["threadId"] = _threadId,
-                    ["input"] = new JArray(new JObject
-                    {
-                        ["type"] = "text",
-                        ["text"] = prompt
-                    }),
+                    ["input"] = BuildTurnInput(prompt, submittedContexts),
                     ["cwd"] = _projectRoot,
-                    ["approvalPolicy"] = "never"
+                    ["approvalPolicy"] = AgentPermissionPolicy.GetApprovalPolicy(_permissionMode),
+                    ["sandboxPolicy"] = AgentPermissionPolicy.CreateSandboxPolicy(_permissionMode, _projectRoot)
                 };
                 AddOptional(parameters, "model", _selectedModelId);
                 AddOptional(parameters, "effort", _selectedReasoningEffort);
@@ -329,6 +436,7 @@ namespace AgentForUnity.Editor.Application
                     StatusText = "Working";
                 }
 
+                CompleteContextSubmission(submittedContexts);
                 SaveState();
                 MarkChanged();
 
@@ -487,7 +595,7 @@ namespace AgentForUnity.Editor.Application
 
         private async void ConnectInternal(bool userInitiated)
         {
-            if (_disposed || _connecting)
+            if (_disposed || !_started || _connecting)
             {
                 return;
             }
@@ -523,6 +631,10 @@ namespace AgentForUnity.Editor.Application
 
                 var process = new CodexAppServerProcess();
                 process.Start(cliInfo.Path, _projectRoot);
+                if (!string.IsNullOrEmpty(process.StartupDiagnostic))
+                {
+                    AddDiagnostic(process.StartupDiagnostic);
+                }
                 newClient = new CodexAppServerClient(process);
                 AttachClient(newClient);
                 _client = newClient;
@@ -724,8 +836,8 @@ namespace AgentForUnity.Editor.Application
             var parameters = new JObject
             {
                 ["cwd"] = _projectRoot,
-                ["sandbox"] = "read-only",
-                ["approvalPolicy"] = "never"
+                ["sandbox"] = AgentPermissionPolicy.GetThreadSandboxMode(_permissionMode),
+                ["approvalPolicy"] = AgentPermissionPolicy.GetApprovalPolicy(_permissionMode)
             };
             AddOptional(parameters, "model", _selectedModelId);
 
@@ -741,6 +853,7 @@ namespace AgentForUnity.Editor.Application
             _threadId = threadId;
             _turnId = null;
             _threadReady = true;
+            ResetM1ForNewThread();
             if (clearMessages)
             {
                 TurnState = AgentTurnState.Idle;
@@ -766,8 +879,8 @@ namespace AgentForUnity.Editor.Application
                 {
                     ["threadId"] = _threadId,
                     ["cwd"] = _projectRoot,
-                    ["sandbox"] = "read-only",
-                    ["approvalPolicy"] = "never"
+                    ["sandbox"] = AgentPermissionPolicy.GetThreadSandboxMode(_permissionMode),
+                    ["approvalPolicy"] = AgentPermissionPolicy.GetApprovalPolicy(_permissionMode)
                 });
             EnsureCurrentClient(client, generation);
 
@@ -789,6 +902,7 @@ namespace AgentForUnity.Editor.Application
         {
             _messages.Clear();
             _streamingMessages.Clear();
+            ResetM1ForRestoredThread();
             _turnId = null;
             TurnState = AgentTurnState.Idle;
 
@@ -840,18 +954,18 @@ namespace AgentForUnity.Editor.Application
 
             if (!string.Equals(type, "userMessage", StringComparison.Ordinal) || !(item["content"] is JArray content))
             {
+                RestoreM1Item(item);
                 return;
             }
 
-            var text = string.Join(
-                "\n",
-                content.OfType<JObject>()
-                    .Where(value => string.Equals(value.Value<string>("type"), "text", StringComparison.Ordinal))
-                    .Select(value => value.Value<string>("text"))
-                    .Where(value => !string.IsNullOrEmpty(value)));
+            var text = ExtractRestoredUserMessage(content, out var attachments);
             if (!string.IsNullOrEmpty(text))
             {
-                _messages.Add(new AgentChatMessage(AgentChatRole.User, text, item.Value<string>("id")));
+                _messages.Add(new AgentChatMessage(
+                    AgentChatRole.User,
+                    text,
+                    item.Value<string>("id"),
+                    attachments));
             }
         }
 
@@ -877,13 +991,17 @@ namespace AgentForUnity.Editor.Application
                 case "thread/started":
                 case "thread/status/changed":
                 case "mcpServer/startupStatus/updated":
-                case "item/started":
                 case "thread/tokenUsage/updated":
                 case "account/rateLimits/updated":
                 case "skills/changed":
                 case "thread/goal/cleared":
                     break;
                 default:
+                    if (TryHandleM1Notification(message))
+                    {
+                        break;
+                    }
+
                     if (_reportedUnknownNotifications.Add(message.Method))
                     {
                         AddDiagnostic($"Ignored unknown notification: {message.Method}");
@@ -904,6 +1022,7 @@ namespace AgentForUnity.Editor.Application
             _turnId = turn?.Value<string>("id") ?? _turnId;
             TurnState = AgentTurnState.Running;
             StatusText = "Working";
+            HandleM1TurnStarted(_turnId);
             SaveState();
             MarkChanged();
             if (_interruptWhenStarted)
@@ -952,6 +1071,8 @@ namespace AgentForUnity.Editor.Application
             {
                 return;
             }
+
+            HandleM1ItemCompleted(item);
 
             if (!string.Equals(item.Value<string>("type"), "agentMessage", StringComparison.Ordinal))
             {
@@ -1019,6 +1140,8 @@ namespace AgentForUnity.Editor.Application
             {
                 AddDiagnostic(error.Value<string>("message") ?? error.ToString());
             }
+
+            HandleM1TurnCompleted(completedTurnId, TurnState);
 
             SaveState();
             MarkChanged();
@@ -1101,6 +1224,7 @@ namespace AgentForUnity.Editor.Application
         private void AttachClient(CodexAppServerClient client)
         {
             client.NotificationReceived += HandleNotification;
+            client.ServerRequestReceived += HandleServerRequest;
             client.DiagnosticReceived += HandleDiagnostic;
             client.Disconnected += QueueDisconnected;
         }
@@ -1115,6 +1239,7 @@ namespace AgentForUnity.Editor.Application
             }
 
             client.NotificationReceived -= HandleNotification;
+            client.ServerRequestReceived -= HandleServerRequest;
             client.DiagnosticReceived -= HandleDiagnostic;
             client.Disconnected -= QueueDisconnected;
             client.Dispose();
@@ -1153,6 +1278,12 @@ namespace AgentForUnity.Editor.Application
 
         private void ScheduleReconnect()
         {
+            if (!_started)
+            {
+                _nextReconnectTime = -1d;
+                return;
+            }
+
             if (_reconnectAttempts >= MaxReconnectAttempts)
             {
                 _nextReconnectTime = -1d;
@@ -1251,6 +1382,8 @@ namespace AgentForUnity.Editor.Application
             _persistedState.turnId = _turnId;
             _persistedState.selectedModelId = _selectedModelId;
             _persistedState.selectedReasoningEffort = _selectedReasoningEffort;
+            _persistedState.permissionMode = _permissionMode.ToString();
+            SaveM1State();
             try
             {
                 AgentForUnityStateStore.Save(_projectRoot, _persistedState);
@@ -1280,15 +1413,6 @@ namespace AgentForUnity.Editor.Application
 
         private void HandleDiagnostic(string message)
         {
-            // AgentDock's legacy catalog cache is incompatible with Codex CLI 0.144.x.
-            // The CLI falls back to a live catalog successfully, so avoid presenting this
-            // non-fatal fallback notice as a chat error.
-            if (!string.IsNullOrEmpty(message) &&
-                message.IndexOf("failed to load models cache: missing field `base_instructions`", StringComparison.Ordinal) >= 0)
-            {
-                return;
-            }
-
             AddDiagnostic(message);
         }
 

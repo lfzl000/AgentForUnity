@@ -152,7 +152,7 @@ namespace AgentForUnity.Editor.Codex
             if (version.CompareTo(MinimumSupportedVersion) < 0 ||
                 version.CompareTo(MaximumSupportedVersion) >= 0)
             {
-                error = $"Codex CLI {version} is not supported by Agent for Unity 0.1.0. Install Codex CLI 0.144.x.";
+                error = $"Codex CLI {version} is not supported by Agent for Unity 0.2.0. Install Codex CLI 0.144.x.";
                 return false;
             }
 

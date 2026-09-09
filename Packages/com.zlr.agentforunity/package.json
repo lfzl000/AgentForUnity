@@ -1,8 +1,8 @@
 {
   "name": "com.zlr.agentforunity",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "displayName": "Agent for Unity",
-  "description": "An Editor-only Codex client for Unity. The M0 release validates local app-server connectivity, model selection, streaming read-only turns, interruption, and thread recovery.",
+  "description": "An Editor-only Codex client for Unity with project context, approval cards, streamed activity, turn diffs, compile feedback, and Domain Reload recovery.",
   "unity": "2022.3",
   "dependencies": {
     "com.unity.nuget.newtonsoft-json": "3.2.1"

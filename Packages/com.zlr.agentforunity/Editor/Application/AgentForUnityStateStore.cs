@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Collections.Generic;
 using Newtonsoft.Json;
 
 namespace AgentForUnity.Editor.Application
@@ -7,7 +8,7 @@ namespace AgentForUnity.Editor.Application
     [Serializable]
     internal sealed class AgentForUnityPersistedState
     {
-        internal const int CurrentSchemaVersion = 1;
+        internal const int CurrentSchemaVersion = 3;
 
         public int schemaVersion = CurrentSchemaVersion;
         public string projectPath;
@@ -15,6 +16,28 @@ namespace AgentForUnity.Editor.Application
         public string turnId;
         public string selectedModelId;
         public string selectedReasoningEffort;
+        public string permissionMode;
+        public bool projectContextSent;
+        public List<AgentContextDraftState> contextDrafts = new List<AgentContextDraftState>();
+        public string lastDiff;
+        public string lastDiffTurnId;
+        public bool compilationPending;
+        public string compilationTurnId;
+        public string compilationState;
+        public string compilationSummary;
+        public string compilationDetails;
+        public string compilationCompletedAt;
+    }
+
+    [Serializable]
+    internal sealed class AgentContextDraftState
+    {
+        public string id;
+        public string kind;
+        public string label;
+        public string source;
+        public string content;
+        public string capturedAt;
     }
 
     internal static class AgentForUnityStateStore
@@ -34,7 +57,7 @@ namespace AgentForUnity.Editor.Application
             try
             {
                 var state = JsonConvert.DeserializeObject<AgentForUnityPersistedState>(File.ReadAllText(statePath));
-                if (state == null || state.schemaVersion != AgentForUnityPersistedState.CurrentSchemaVersion)
+                if (state == null || state.schemaVersion < 1 || state.schemaVersion > AgentForUnityPersistedState.CurrentSchemaVersion)
                 {
                     error = "Ignored persisted state with an unsupported schema version.";
                     return CreateEmpty(projectRoot);
@@ -45,6 +68,9 @@ namespace AgentForUnity.Editor.Application
                     error = "Ignored persisted state belonging to a different Unity project.";
                     return CreateEmpty(projectRoot);
                 }
+
+                state.schemaVersion = AgentForUnityPersistedState.CurrentSchemaVersion;
+                state.contextDrafts = state.contextDrafts ?? new List<AgentContextDraftState>();
 
                 return state;
             }

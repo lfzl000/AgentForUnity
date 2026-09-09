@@ -2,6 +2,24 @@
 
 All notable changes to Agent for Unity are documented in this file.
 
+## [0.2.0] - 2026-09-09
+
+### Added
+
+- M1 workspace-write turns with command, network, and file-change approval cards scoped to their thread, turn, and item.
+- Streamed plan, reasoning-summary, command-output, file-change, and tool activity cards.
+- Removable Project, Selection, Console, File, Scene, and Git Diff context attachments with redaction, hashing, and size budgets.
+- Aggregated turn Diff panel with changed-file navigation.
+- Unity compilation status and result cards with same-thread error continuation.
+- Persistence for context drafts, turn Diff, compilation state, and Domain Reload recovery.
+- Mid-turn steering from the message composer.
+- A persistent Ask Approval, Codex Decides, and Full Access permission selector.
+
+### Changed
+
+- Turns now apply the selected Codex approval policy and sandbox; Codex Decides remains project-scoped and Full Access is explicitly unrestricted.
+- Package documentation and metadata now describe the M1 workflow.
+
 ## [0.1.0] - 2026-09-08
 
 ### Added

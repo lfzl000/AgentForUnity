@@ -124,6 +124,20 @@ namespace AgentForUnity.Editor.Codex
             }.ToString(Formatting.None);
         }
 
+        internal static string SerializeResponse(JToken id, JObject result)
+        {
+            if (id == null)
+            {
+                throw new ArgumentNullException(nameof(id));
+            }
+
+            return new JObject
+            {
+                ["id"] = id.DeepClone(),
+                ["result"] = result ?? new JObject()
+            }.ToString(Formatting.None);
+        }
+
         internal static CodexMessage Parse(string json)
         {
             if (string.IsNullOrWhiteSpace(json))

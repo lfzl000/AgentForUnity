@@ -34,6 +34,7 @@ namespace AgentForUnity.Editor.Codex
         }
 
         internal event Action<CodexMessage> NotificationReceived;
+        internal event Action<CodexMessage> ServerRequestReceived;
         internal event Action<string> DiagnosticReceived;
         internal event Action<CodexAppServerClient, string> Disconnected;
 
@@ -47,7 +48,7 @@ namespace AgentForUnity.Editor.Codex
                     {
                         ["name"] = "agent_for_unity",
                         ["title"] = "Agent for Unity",
-                        ["version"] = "0.1.0"
+                        ["version"] = "0.2.0"
                     }
                 });
 
@@ -87,6 +88,23 @@ namespace AgentForUnity.Editor.Codex
         {
             ThrowIfDisposed();
             return _process.WriteLineAsync(CodexProtocol.SerializeNotification(method, parameters));
+        }
+
+        internal Task RespondToServerRequestAsync(JToken id, JObject result)
+        {
+            ThrowIfDisposed();
+            return _process.WriteLineAsync(CodexProtocol.SerializeResponse(id, result));
+        }
+
+        internal Task RejectServerRequestAsync(CodexMessage message, int code, string reason)
+        {
+            if (message == null || message.Id == null)
+            {
+                throw new ArgumentException("A server request with an id is required.", nameof(message));
+            }
+
+            ThrowIfDisposed();
+            return _process.WriteLineAsync(CodexProtocol.SerializeErrorResponse(message.Id, code, reason));
         }
 
         internal int Pump(int maximumMessages)
@@ -163,8 +181,15 @@ namespace AgentForUnity.Editor.Codex
                     NotificationReceived?.Invoke(message);
                     break;
                 case CodexMessageKind.ServerRequest:
-                    DiagnosticReceived?.Invoke($"Rejected unsupported M0 server request: {message.Method}");
-                    _ = RejectServerRequestAsync(message);
+                    if (ServerRequestReceived != null)
+                    {
+                        ServerRequestReceived.Invoke(message);
+                    }
+                    else
+                    {
+                        DiagnosticReceived?.Invoke($"Rejected unsupported server request: {message.Method}");
+                        _ = RejectUnsupportedServerRequestAsync(message);
+                    }
                     break;
                 default:
                     throw new ArgumentOutOfRangeException();
@@ -208,14 +233,14 @@ namespace AgentForUnity.Editor.Codex
             return new CodexProtocolException(method, code, text);
         }
 
-        private async Task RejectServerRequestAsync(CodexMessage message)
+        private async Task RejectUnsupportedServerRequestAsync(CodexMessage message)
         {
             try
             {
                 await _process.WriteLineAsync(CodexProtocol.SerializeErrorResponse(
                     message.Id,
                     -32601,
-                    $"{message.Method} is not supported by Agent for Unity M0."));
+                    $"{message.Method} is not supported by Agent for Unity."));
             }
             catch (Exception exception)
             {
