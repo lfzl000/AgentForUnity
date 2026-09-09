@@ -1,46 +1,74 @@
 # Agent for Unity
 
-Agent for Unity is an Editor-only UPM package that embeds a Codex client in Unity. It uses UI Toolkit and communicates with a local `codex app-server` process, so authentication, models, conversations, tool execution, and permission decisions remain owned by Codex.
+Agent for Unity is an Editor-only UPM package that connects a Unity project to a local `codex app-server` process.
 
-Release `0.3.0` implements the M1 workflow plus project-scoped conversation browsing and switching, activity placement within the corresponding response, Markdown rendering for Agent messages, CLI discovery, and post-turn compilation requests.
+Release `0.3.0` implements the M1 core workflow plus conversation and message-presentation improvements.
+
+The core workflow provides:
+
+- locate and start the local Codex CLI app server;
+- initialize the protocol and read account state;
+- load the account's available models and reasoning efforts;
+- start or recover a project-scoped workspace-write thread;
+- list and switch between resumable Codex conversations created for the current Unity project;
+- stream Agent messages, plans, reasoning summaries, tools, commands, and file changes;
+- attach Project, Selection, recent Console, File, Scene, and Git Diff context;
+- paste clipboard screenshots as removable image attachments with thumbnail previews;
+- approve or decline command, network, file-change, and user-input requests;
+- choose a persistent Ask Approval, Codex Decides, or Full Access permission mode;
+- inspect the current turn's aggregated Diff and open changed files;
+- track Unity compilation and continue compiler-error repair in the same thread;
+- recover context, Diff, compile state, and the current thread after Domain Reload;
+- steer or interrupt the active turn.
 
 ## Requirements
 
 - Unity 2022.3 LTS or newer
-- Codex CLI `0.144.0` or later
-- An authenticated Codex account
+- Codex CLI `0.144.0` or later with an authenticated account
 - macOS for the currently supported environment
 
-## Use
+## Install
 
-Open the project in Unity and choose **Window > Agent for Unity**. The package detects the local CLI, account, and project root, then lists resumable conversations for that project. Start a new thread or open an existing one, select the model, reasoning effort, and permission mode, attach any needed Unity context, and send the request.
+For a local checkout, install this repository's `package.json` through **Window > Package Manager > Add package from disk**.
 
-Agent responses render common Markdown, and their associated tool, plan, reasoning-summary, command, and file-change activity is grouped with the response that produced it. Use **Stop** to interrupt a turn or **Steer** to add direction while one is running. The details pane keeps approvals, the current turn Diff, compile state, connection details, and diagnostics available.
-
-After a completed turn that changes files, the package requests Unity script compilation and records the observed result. This is compilation feedback only; it is not Play Mode or visual validation. When Unity does not start compilation, use **Compile Unity** to request it explicitly. A failed compilation can be sent back to the same conversation with **Continue Fix**.
-
-## Permissions And Data
-
-The selected permission mode applies to new turns:
-
-- **Ask Approval** uses an untrusted approval policy with a project-scoped writable sandbox.
-- **Codex Decides** uses on-request approval with a project-scoped writable sandbox and network access disabled by default.
-- **Full Access** disables approval prompts and uses Codex's unrestricted sandbox. Select it only when that scope is intended.
-
-Context attachments can include Project, Selection, selected Console entries, File, Scene, and Git Diff. Context is redacted, hashed for duplicate detection, and size-limited before it is sent. The package stores reload state and redacted context drafts under `Library/AgentForUnity/`; it does not store API keys, OAuth tokens, or full conversation history in `Assets`.
-
-## Install In Another Project
-
-The embedded package is located at [`Packages/com.zlr.agentforunity`](Packages/com.zlr.agentforunity). See its [package README](Packages/com.zlr.agentforunity/README.md) for usage and package details.
-
-To install release `0.3.0` in another project, use **Window > Package Manager > Add package from git URL**:
+To install the current `main` branch from Git, use **Window > Package Manager > Add package from git URL** with:
 
 ```text
-https://github.com/lfzl000/AgentForUnity.git?path=/Packages/com.zlr.agentforunity#v0.3.0
+https://github.com/lfzl000/AgentForUnity.git#main
 ```
 
-The repository is private, so Git must be authenticated for the current user.
+The GitHub repository is private, so Git must be authenticated for the current user before Unity can install it.
 
-## Product Scope
+After installation, open **Window > Agent for Unity**. The package version should show as `0.3.0` in Package Manager.
 
-The product requirements and milestone definitions are documented in [`Docs/Product/AgentForUnity-MVP-PRD.md`](Docs/Product/AgentForUnity-MVP-PRD.md).
+The package depends on `com.unity.nuget.newtonsoft-json` `3.2.1`.
+
+## Use The Window
+
+In Unity, choose **Window > Agent for Unity**. The window reports the detected CLI, account, project root, current thread, connection state, and diagnostics. The **Conversations** pane lists non-archived threads whose working directory is the current Unity project; use **New Thread**, refresh, or select a thread to continue it. A thread that is already active in another Codex client opens read-only.
+
+Choose an available model, reasoning effort, and permission mode before sending a prompt. Attach Project, Selection, specific Console entries, File, Scene, or Git Diff context as required. The first new thread automatically receives the project summary. Context is redacted, de-duplicated by hash, and constrained by size budgets before it is sent.
+
+Use **+ Screenshot**, or press **Cmd+V** on macOS while the prompt is focused, to attach an image currently on the clipboard. Screenshot drafts and sent messages show thumbnail previews; remove a draft with the **x** button on its preview. Clipboard images are stored under `Library/AgentForUnity/Attachments` and sent to Codex as local image inputs rather than imported Unity assets.
+
+Agent responses render common Markdown. Plans, reasoning summaries, tool actions, command output, and file-change activity are grouped with the Agent message for the same turn. Use **Stop** to interrupt an active turn. While a turn is running, **Send** becomes **Steer** and appends a correction to that turn.
+
+The details pane contains approval requests, compilation feedback, the current turn Diff, connection metadata, and diagnostics. Changed-file links in Markdown and the Diff open project-relative files. After a completed turn with a recorded file Diff, the package requests Unity script compilation. The resulting status is compilation feedback only and must not be treated as Play Mode or visual validation. If Unity does not start compiling, select **Compile Unity**; when compilation fails, **Continue Fix** sends the captured error summary to the same thread.
+
+## Permission Modes
+
+- **Ask Approval**: uses Codex's `untrusted` approval policy with a writable sandbox limited to the Unity project.
+- **Codex Decides**: uses `on-request` approval with that project-scoped writable sandbox and network access disabled by default.
+- **Full Access**: uses `never` approval with Codex's `danger-full-access` sandbox. This mode is unrestricted.
+
+Codex owns authentication and conversation history. Agent for Unity does not write API keys, OAuth tokens, or message history to `Assets`. Reload state, redacted context drafts, turn Diff, and compilation state are stored under `Library/AgentForUnity/`.
+
+## Package Layout
+
+```text
+Editor/
+  Application/   M1 application state, Unity context, compile monitoring, and view models
+  Process/       Codex process lifecycle and CLI detection
+  Protocol/      JSON-RPC and app-server protocol handling
+  UI/            UI Toolkit editor window and Markdown renderer
+```

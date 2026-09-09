@@ -35,3 +35,8 @@ Thumbs.db
 
 # Local generated project analysis
 /Docs/AI/UnityProjectContext.md
+
+# Local Unity host project used to develop this package
+/Assets/
+/ProjectSettings/
+/Packages/

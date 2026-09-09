@@ -13,8 +13,8 @@
     "codex",
     "editor"
   ],
-  "documentationUrl": "https://github.com/lfzl000/AgentForUnity/blob/main/Packages/com.zlr.agentforunity/README.md",
-  "changelogUrl": "https://github.com/lfzl000/AgentForUnity/blob/main/Packages/com.zlr.agentforunity/CHANGELOG.md",
+  "documentationUrl": "https://github.com/lfzl000/AgentForUnity/blob/main/README.md",
+  "changelogUrl": "https://github.com/lfzl000/AgentForUnity/blob/main/CHANGELOG.md",
   "repository": {
     "type": "git",
     "url": "https://github.com/lfzl000/AgentForUnity.git"
