@@ -17,16 +17,11 @@ namespace AgentForUnity.Editor.UI
         private const int MaxRenderedActivityItems = 12;
         private const int MaxRenderedActivityBodyCharacters = 512;
         private const int MaxPreviewImageBytes = 25 * 1024 * 1024;
+        private const string LanguagePreferenceKey = "AgentForUnity.InterfaceLanguage";
         private static readonly string[] TurnActivityFrames = { "|", "/", "-", "\\" };
 
-        private static readonly IReadOnlyList<string> PermissionChoices = new[]
-        {
-            "Ask Approval",
-            "Codex Decides",
-            "Full Access"
-        };
-
         private readonly List<string> _modelIds = new List<string>();
+        private readonly List<string> _reasoningEffortIds = new List<string>();
         private readonly List<MessageRow> _messageRows = new List<MessageRow>();
         private readonly List<Texture2D> _composerPreviewTextures = new List<Texture2D>();
 
@@ -48,6 +43,7 @@ namespace AgentForUnity.Editor.UI
         private DropdownField _modelField;
         private DropdownField _reasoningField;
         private DropdownField _permissionField;
+        private DropdownField _languageField;
         private ScrollView _messagesScroll;
         private ScrollView _detailsScroll;
         private ScrollView _compileDetailsScroll;
@@ -206,6 +202,7 @@ namespace AgentForUnity.Editor.UI
             _modelField = rootVisualElement.Q<DropdownField>("model-field");
             _reasoningField = rootVisualElement.Q<DropdownField>("reasoning-field");
             _permissionField = rootVisualElement.Q<DropdownField>("permission-field");
+            _languageField = rootVisualElement.Q<DropdownField>("language-field");
             _messagesScroll = rootVisualElement.Q<ScrollView>("messages-scroll");
             _detailsScroll = rootVisualElement.Q<ScrollView>("details-scroll");
             _compileDetailsScroll = rootVisualElement.Q<ScrollView>("compile-details-scroll");
@@ -266,6 +263,7 @@ namespace AgentForUnity.Editor.UI
                    && _modelField != null
                    && _reasoningField != null
                    && _permissionField != null
+                   && _languageField != null
                    && _messagesScroll != null
                    && _detailsScroll != null
                    && _compileDetailsScroll != null
@@ -359,6 +357,22 @@ namespace AgentForUnity.Editor.UI
             _modelField.RegisterValueChangedCallback(OnModelChanged);
             _reasoningField.RegisterValueChangedCallback(OnReasoningChanged);
             _permissionField.RegisterValueChangedCallback(OnPermissionChanged);
+            _languageField.RegisterValueChangedCallback(OnLanguageChanged);
+            ApplyComposerSelectWidths();
+        }
+
+        private void ApplyComposerSelectWidths()
+        {
+            SetFixedWidth(_modelField, 120f);
+            SetFixedWidth(_reasoningField, 60f);
+            SetFixedWidth(_permissionField, 105f);
+        }
+
+        private static void SetFixedWidth(VisualElement field, float width)
+        {
+            field.style.width = width;
+            field.style.minWidth = width;
+            field.style.maxWidth = width;
         }
 
         private void OnServiceChanged()
@@ -376,10 +390,12 @@ namespace AgentForUnity.Editor.UI
             _isRefreshing = true;
             try
             {
+                RefreshLanguageSelector();
+                ApplyLocalizedStaticText();
                 var connectionState = Convert.ToString(_service.ConnectionState) ?? string.Empty;
-                _connectionState.text = DisplayValue(connectionState, "Not checked");
-                _statusText.text = DisplayValue(_service.StatusText, "Waiting for Codex");
-                _turnState.text = DisplayValue(_service.TurnStateLabel, "Idle");
+                _connectionState.text = LocalizeConnectionState(connectionState);
+                _statusText.text = LocalizeStatusText(_service.StatusText, T("Waiting for Codex", "等待 Codex"));
+                _turnState.text = LocalizeTurnState(_service.TurnStateLabel, T("Idle", "空闲"));
                 RefreshTurnActivity(_service.IsTurnStarting);
                 _contextUsageLabel.text = _service.ContextUsageLabel;
                 _contextUsageLabel.tooltip = _service.ContextUsageTooltip;
@@ -390,14 +406,14 @@ namespace AgentForUnity.Editor.UI
                     ? DisplayStyle.Flex
                     : DisplayStyle.None;
 
-                SetLabelValue(_threadValue, _service.CurrentThreadTitle, "New conversation");
+                SetLabelValue(_threadValue, _service.CurrentThreadTitle, T("New conversation", "新对话"));
                 _threadValue.tooltip = string.IsNullOrEmpty(_service.ThreadId)
                     ? null
                     : "Thread ID: " + _service.ThreadId;
-                SetLabelValue(_cliVersionValue, _service.CliVersion, "Unknown");
-                SetLabelValue(_accountValue, _service.AccountLabel, "Unknown");
-                SetLabelValue(_accountUsageValue, _service.AccountUsageLabel, "Unavailable");
-                SetLabelValue(_projectValue, ShortProjectName(_service.ProjectRoot), "Unavailable");
+                SetLabelValue(_cliVersionValue, _service.CliVersion, T("Unknown", "未知"));
+                SetLabelValue(_accountValue, _service.AccountLabel, T("Unknown", "未知"));
+                SetLabelValue(_accountUsageValue, LocalizeAccountUsage(_service.AccountUsageLabel), T("Unavailable", "不可用"));
+                SetLabelValue(_projectValue, ShortProjectName(_service.ProjectRoot), T("Unavailable", "不可用"));
                 _projectValue.tooltip = _service.ProjectRoot;
 
                 RefreshConnectionTone(connectionState);
@@ -471,7 +487,7 @@ namespace AgentForUnity.Editor.UI
             _conversationsList.Clear();
             if (threads == null || threads.Count == 0)
             {
-                var empty = new Label(isLoading ? "Loading conversations..." : "No conversations yet");
+                var empty = new Label(isLoading ? T("Loading conversations...", "正在加载对话…") : T("No conversations yet", "暂无对话"));
                 empty.AddToClassList("afu-conversations-empty");
                 _conversationsList.Add(empty);
                 return;
@@ -518,9 +534,9 @@ namespace AgentForUnity.Editor.UI
             {
                 var loadMore = new Button(_service.LoadMoreThreads)
                 {
-                    text = isLoading ? "Loading..." : "Load more"
+                    text = isLoading ? T("Loading...", "正在加载…") : T("Load more", "加载更多")
                 };
-                loadMore.tooltip = "Load 20 more conversations";
+                loadMore.tooltip = T("Load 20 more conversations", "加载另外 20 个对话");
                 loadMore.AddToClassList("afu-conversations-load-more");
                 loadMore.SetEnabled(canLoadMore);
                 _conversationsList.Add(loadMore);
@@ -589,7 +605,7 @@ namespace AgentForUnity.Editor.UI
             var title = string.IsNullOrWhiteSpace(thread.Name) ? thread.Preview : thread.Name;
             if (string.IsNullOrWhiteSpace(title))
             {
-                return "New conversation";
+                return T("New conversation", "新对话");
             }
 
             return title.Replace('\r', ' ').Replace('\n', ' ').Trim();
@@ -600,13 +616,13 @@ namespace AgentForUnity.Editor.UI
             var parts = new List<string>();
             if (selected)
             {
-                parts.Add("Current");
+                parts.Add(T("Current", "当前"));
             }
 
             if (!string.IsNullOrWhiteSpace(thread.Status) &&
                 !string.Equals(thread.Status, "notLoaded", StringComparison.Ordinal))
             {
-                parts.Add(thread.Status == "active" ? "Active" : "Idle");
+                parts.Add(thread.Status == "active" ? T("Active", "进行中") : T("Idle", "空闲"));
             }
 
             if (thread.UpdatedAt > 0)
@@ -623,8 +639,8 @@ namespace AgentForUnity.Editor.UI
 
         private static string ConversationTooltip(AgentThreadInfo thread)
         {
-            var preview = string.IsNullOrWhiteSpace(thread.Preview) ? "No messages yet" : thread.Preview.Trim();
-            return preview + "\n\nThread: " + thread.Id;
+            var preview = string.IsNullOrWhiteSpace(thread.Preview) ? T("No messages yet", "暂无消息") : thread.Preview.Trim();
+            return preview + "\n\n" + T("Thread: ", "对话：") + thread.Id;
         }
 
         private void RefreshModels(IReadOnlyList<AgentModelInfo> models, string selectedModelId)
@@ -655,7 +671,7 @@ namespace AgentForUnity.Editor.UI
 
             if (choices.Count == 0)
             {
-                choices.Add("Unavailable");
+                choices.Add(T("Unavailable", "不可用"));
             }
 
             _modelField.choices = choices;
@@ -667,26 +683,28 @@ namespace AgentForUnity.Editor.UI
         private void RefreshReasoningEfforts(IReadOnlyList<string> efforts, string selectedEffort)
         {
             var choices = new List<string>();
+            _reasoningEffortIds.Clear();
             if (efforts != null)
             {
                 for (var i = 0; i < efforts.Count; i++)
                 {
                     if (!string.IsNullOrWhiteSpace(efforts[i]))
                     {
-                        choices.Add(efforts[i]);
+                        _reasoningEffortIds.Add(efforts[i]);
+                        choices.Add(DisplayReasoningEffort(efforts[i]));
                     }
                 }
             }
 
             if (choices.Count == 0)
             {
-                choices.Add("Unavailable");
+                choices.Add(T("Unavailable", "不可用"));
             }
 
             _reasoningField.choices = choices;
-            var selectedIndex = choices.IndexOf(selectedEffort);
+            var selectedIndex = _reasoningEffortIds.IndexOf(selectedEffort);
             _reasoningField.SetValueWithoutNotify(selectedIndex >= 0 ? choices[selectedIndex] : choices[0]);
-            _reasoningField.SetEnabled(efforts != null && efforts.Count > 0 && _service.CanSend);
+            _reasoningField.SetEnabled(_reasoningEffortIds.Count > 0 && _service.CanSend);
         }
 
         private void RefreshPermissionMode(AgentPermissionMode mode)
@@ -710,7 +728,7 @@ namespace AgentForUnity.Editor.UI
                     DestroyMessagePreviewTextures();
                     _messageRows.Clear();
                     _messagesDeliveryList.Clear();
-                    var empty = new Label("No messages in this thread");
+                    var empty = new Label(T("No messages in this thread", "此对话中暂无消息"));
                     empty.AddToClassList("afu-empty-state");
                     _messagesDeliveryList.Add(empty);
                 }
@@ -740,10 +758,14 @@ namespace AgentForUnity.Editor.UI
                 var row = _messageRows[i];
                 var role = message == null ? string.Empty : Convert.ToString(message.Role);
                 var normalizedRole = NormalizeRole(role);
+                var isUserMessage = message != null && message.Role == AgentChatRole.User;
+                var isAgentMessage = message != null && message.Role == AgentChatRole.Agent;
 
-                row.Root.EnableInClassList("afu-message--user", normalizedRole == "User");
-                row.Root.EnableInClassList("afu-message--agent", normalizedRole == "Agent");
+                row.Root.EnableInClassList("afu-message--user", isUserMessage);
+                row.Root.EnableInClassList("afu-message--agent", isAgentMessage);
                 row.Role.text = normalizedRole;
+                row.Streaming.text = T("Streaming", "生成中");
+                row.CopyButton.tooltip = T("Copy message text", "复制消息文本");
                 RefreshMessageAttachments(row, message?.Attachments);
                 RefreshMessageActivities(row, message);
                 var text = message == null ? string.Empty : message.Text ?? string.Empty;
@@ -941,7 +963,7 @@ namespace AgentForUnity.Editor.UI
 
         private static string ProcessTitle(TimeSpan? duration)
         {
-            return $"Process conversation · Total {FormatDuration(duration)}";
+            return T("Process conversation · Total ", "处理对话 · 总计 ") + FormatDuration(duration);
         }
 
         private static string FormatElapsed(TimeSpan? duration)
@@ -964,7 +986,7 @@ namespace AgentForUnity.Editor.UI
         {
             if (!duration.HasValue)
             {
-                return "unknown";
+                return T("unknown", "未知");
             }
 
             var value = duration.Value;
@@ -1048,7 +1070,7 @@ namespace AgentForUnity.Editor.UI
                 return;
             }
 
-            var caption = new Label("Attachments");
+            var caption = new Label(T("Attachments", "附件"));
             caption.AddToClassList("afu-message__attachments-caption");
             row.Attachments.Add(caption);
             foreach (var attachment in attachments)
@@ -1104,11 +1126,11 @@ namespace AgentForUnity.Editor.UI
             var latestActivity = activities[count - 1];
             var summary = ActivitySummary(latestActivity);
             row.ActivityFoldout.text = skippedCount == 0
-                ? $"Activity ({count}) · {summary}"
-                : $"Activity ({count}, latest {MaxRenderedActivityItems}) · {summary}";
+                ? T("Activity", "活动") + $" ({count}) · {summary}"
+                : T("Activity", "活动") + $" ({count}, " + T("latest", "最近") + $" {MaxRenderedActivityItems}) · {summary}";
             if (skippedCount > 0)
             {
-                AddEmptyCard(row.ActivityList, $"Showing the latest {MaxRenderedActivityItems} of {count} activity items.");
+                AddEmptyCard(row.ActivityList, T("Showing the latest", "仅显示最近") + $" {MaxRenderedActivityItems} / {count} " + T("activity items.", "个活动项。"));
             }
 
             foreach (var activity in activities.Skip(skippedCount))
@@ -1180,11 +1202,11 @@ namespace AgentForUnity.Editor.UI
             _lastApprovalSignature = signature;
             _approvalsList.Clear();
             var pendingCount = approvals?.Count(item => !item.IsResolved) ?? 0;
-            _approvalsFoldout.text = pendingCount == 0 ? "Approvals" : $"Approvals ({pendingCount} pending)";
+            _approvalsFoldout.text = pendingCount == 0 ? T("Approvals", "审批") : T("Approvals", "审批") + $" ({pendingCount} " + T("pending", "待处理") + ")";
             RefreshApprovalAlert(approvals, pendingCount);
             if (approvals == null || approvals.Count == 0)
             {
-                AddEmptyCard(_approvalsList, "No approval requests");
+                AddEmptyCard(_approvalsList, T("No approval requests", "暂无审批请求"));
                 return;
             }
 
@@ -1208,11 +1230,11 @@ namespace AgentForUnity.Editor.UI
             }
 
             _approvalAlertTitle.text = pendingCount == 1
-                ? "ACTION REQUIRED · PERMISSION NEEDED"
-                : $"ACTION REQUIRED · {pendingCount} PERMISSIONS NEEDED";
+                ? T("ACTION REQUIRED · PERMISSION NEEDED", "需要操作 · 等待权限")
+                : T("ACTION REQUIRED", "需要操作") + $" · {pendingCount} " + T("PERMISSIONS NEEDED", "项权限等待处理");
             var firstPending = approvals?.FirstOrDefault(item => !item.IsResolved);
             var requestName = firstPending == null || string.IsNullOrWhiteSpace(firstPending.Title)
-                ? "this request"
+                ? T("this request", "此请求")
                 : firstPending.Title;
             _activeChatApprovalKey = firstPending?.Key;
             var requiresUserInput = firstPending?.Kind == AgentApprovalKind.UserInput;
@@ -1226,11 +1248,11 @@ namespace AgentForUnity.Editor.UI
             _chatDeclineButton.SetEnabled(canRespond);
             _chatCancelTurnButton.SetEnabled(canRespond);
             _chatApprovalTitle.text = pendingCount == 1
-                ? "Permission required"
-                : $"{pendingCount} permissions required";
+                ? T("Permission required", "需要权限")
+                : $"{pendingCount} " + T("permissions required", "项权限等待处理");
             var action = DescribeApprovalAction(firstPending);
-            _chatApprovalMessage.text = $"{requestName} is waiting for your decision. Current action: {action}";
-            _approvalAlertMessage.text = $"Codex is paused at {requestName}. Current action: {action}";
+            _chatApprovalMessage.text = $"{requestName}" + T(" is waiting for your decision. Current action: ", " 正在等待你的决定。当前操作：") + action;
+            _approvalAlertMessage.text = T("Codex is paused at ", "Codex 已暂停于 ") + requestName + T(". Current action: ", "。当前操作：") + action;
 
             _approvalsFoldout.SetValueWithoutNotify(true);
             if (_hadPendingApprovals)
@@ -1265,7 +1287,7 @@ namespace AgentForUnity.Editor.UI
             card.Add(CardTitle($"{approval.Title} · {state}"));
             if (!string.IsNullOrWhiteSpace(approval.Reason))
             {
-                card.Add(CardBody("Reason: " + approval.Reason));
+                card.Add(CardBody(T("Reason: ", "原因：") + approval.Reason));
             }
 
             if (!string.IsNullOrWhiteSpace(approval.WorkingDirectory))
@@ -1291,10 +1313,10 @@ namespace AgentForUnity.Editor.UI
 
             var actions = new VisualElement();
             actions.AddToClassList("afu-card__actions");
-            actions.Add(ApprovalButton("Allow Once", approval, "accept"));
-            actions.Add(ApprovalButton("Allow Session", approval, "acceptForSession"));
-            actions.Add(ApprovalButton("Decline", approval, "decline"));
-            actions.Add(ApprovalButton("Cancel Turn", approval, "cancel"));
+            actions.Add(ApprovalButton(T("Allow Once", "仅允许一次"), approval, "accept"));
+            actions.Add(ApprovalButton(T("Allow Session", "本次会话允许"), approval, "acceptForSession"));
+            actions.Add(ApprovalButton(T("Decline", "拒绝"), approval, "decline"));
+            actions.Add(ApprovalButton(T("Cancel Turn", "取消本轮"), approval, "cancel"));
             card.Add(actions);
             return card;
         }
@@ -1317,7 +1339,7 @@ namespace AgentForUnity.Editor.UI
                     var choices = new List<string>(question.Options);
                     if (question.AllowsOther)
                     {
-                        choices.Add("Other...");
+                        choices.Add(T("Other...", "其他…"));
                     }
 
                     var dropdown = new DropdownField(choices, 0);
@@ -1327,11 +1349,11 @@ namespace AgentForUnity.Editor.UI
                     if (question.AllowsOther)
                     {
                         dropdown.RegisterValueChangedCallback(change =>
-                            other.style.display = change.newValue == "Other..." ? DisplayStyle.Flex : DisplayStyle.None);
+                            other.style.display = change.newValue == T("Other...", "其他…") ? DisplayStyle.Flex : DisplayStyle.None);
                         group.Add(other);
                     }
 
-                    answerReaders[question.Id] = () => dropdown.value == "Other..." ? other.value : dropdown.value;
+                    answerReaders[question.Id] = () => dropdown.value == T("Other...", "其他…") ? other.value : dropdown.value;
                 }
                 else
                 {
@@ -1347,7 +1369,7 @@ namespace AgentForUnity.Editor.UI
             {
                 var answers = answerReaders.ToDictionary(pair => pair.Key, pair => pair.Value());
                 _service.SubmitUserInput(approval.Key, answers);
-            }) { text = "Submit" };
+            }) { text = T("Submit", "提交") };
             submit.SetEnabled(!approval.IsResponding && _service.ConnectionState == AgentConnectionState.Ready);
             var actions = new VisualElement();
             actions.AddToClassList("afu-card__actions");
@@ -1376,7 +1398,7 @@ namespace AgentForUnity.Editor.UI
             }
 
             _lastCompilationSignature = signature;
-            _compileSummary.text = compilation?.Summary ?? "No compilation result";
+            _compileSummary.text = compilation?.Summary ?? T("No compilation result", "暂无编译结果");
             _compileDetails.text = compilation?.Details ?? string.Empty;
             var detailsDisplay = string.IsNullOrWhiteSpace(_compileDetails.text)
                 ? DisplayStyle.None
@@ -1400,20 +1422,20 @@ namespace AgentForUnity.Editor.UI
             _diffText.SetValueWithoutNotify(diff);
             _diffFilesList.Clear();
             var paths = ParseDiffPaths(diff);
-            _diffFoldout.text = paths.Count == 0 ? "Turn Diff" : $"Turn Diff ({paths.Count} files)";
+            _diffFoldout.text = paths.Count == 0 ? T("Turn Diff", "本轮差异") : T("Turn Diff", "本轮差异") + $" ({paths.Count} " + T("files", "个文件") + ")";
             foreach (var path in paths)
             {
                 var capturedPath = path;
                 _diffFilesList.Add(new Button(() => OpenProjectPath(capturedPath))
                 {
                     text = capturedPath,
-                    tooltip = "Open or reveal this changed file"
+                    tooltip = T("Open or reveal this changed file", "打开或定位此变更文件")
                 });
             }
 
             if (string.IsNullOrEmpty(diff))
             {
-                AddEmptyCard(_diffFilesList, "No Diff for this turn");
+                AddEmptyCard(_diffFilesList, T("No Diff for this turn", "本轮没有差异"));
             }
         }
 
@@ -1599,7 +1621,7 @@ namespace AgentForUnity.Editor.UI
 
             var hasPrompt = !string.IsNullOrWhiteSpace(_promptField.value);
             var hasScreenshot = _service.HasScreenshotAttachments;
-            _sendButton.text = _service.CanSteer ? "Steer" : "Send";
+            _sendButton.text = _service.CanSteer ? T("Steer", "引导") : T("Send", "发送");
             _sendButton.SetEnabled((_service.CanSend || _service.CanSteer) && (hasPrompt || hasScreenshot));
             _interruptButton.SetEnabled(_service.CanInterrupt);
             _disconnectButton.SetEnabled(_service.CanDisconnect);
@@ -1680,9 +1702,15 @@ namespace AgentForUnity.Editor.UI
 
         private void OnReasoningChanged(ChangeEvent<string> change)
         {
-            if (!_isRefreshing && _reasoningField.enabledSelf && !string.IsNullOrWhiteSpace(change.newValue))
+            if (_isRefreshing || !_reasoningField.enabledSelf)
             {
-                _service.SelectedReasoningEffort = change.newValue;
+                return;
+            }
+
+            var index = _reasoningField.choices.IndexOf(change.newValue);
+            if (index >= 0 && index < _reasoningEffortIds.Count)
+            {
+                _service.SelectedReasoningEffort = _reasoningEffortIds[index];
             }
         }
 
@@ -1700,6 +1728,93 @@ namespace AgentForUnity.Editor.UI
             }
         }
 
+        private void OnLanguageChanged(ChangeEvent<string> change)
+        {
+            if (_isRefreshing)
+            {
+                return;
+            }
+
+            EditorPrefs.SetBool(LanguagePreferenceKey, change.newValue == "中文");
+            InterfaceLanguageChanged?.Invoke();
+            _lastThreadSignature = null;
+            _lastContextSignature = null;
+            _lastApprovalSignature = null;
+            _lastCompilationSignature = null;
+            _lastDiff = null;
+            _lastMessagePresentationSignature = null;
+            foreach (var row in _messageRows)
+            {
+                row.ActivitySignature = null;
+            }
+
+            RefreshFromService();
+        }
+
+        private void RefreshLanguageSelector()
+        {
+            _languageField.choices = new List<string> { "English", "中文" };
+            _languageField.SetValueWithoutNotify(IsChinese ? "中文" : "English");
+        }
+
+        private void ApplyLocalizedStaticText()
+        {
+            SetText("cli-caption", "CLI", "CLI");
+            SetText("project-caption", "Project", "项目");
+            SetText("conversations-caption", "Conversations", "对话");
+            SetText("remaining-caption", "Remaining", "剩余");
+            SetText("thread-caption", "Thread", "对话");
+            SetText("reconnect-button", "Reconnect", "重新连接", "Restart connection detection", "重新检测连接");
+            SetText("disconnect-button", "Disconnect", "断开连接", "Stop the Codex App Server connection", "停止 Codex App Server 连接");
+            SetText("new-thread-button", "New Thread", "新建对话", "Start a new project-scoped thread", "开始一个项目范围的新对话");
+            SetText("refresh-threads-button", "↻", "↻", "Reload conversations for this Unity project", "重新加载此 Unity 项目的对话");
+            SetText("request-compile-button", "Compile Unity", "编译 Unity", "Request Unity script compilation for this completed conversation", "为已完成对话请求 Unity 脚本编译");
+            SetText("chat-allow-once-button", "Allow Once", "仅允许一次");
+            SetText("chat-allow-session-button", "Allow Session", "本次会话允许");
+            SetText("chat-decline-button", "Decline", "拒绝");
+            SetText("chat-cancel-turn-button", "Cancel Turn", "取消本轮");
+            SetText("review-approval-button", "Answer Request", "处理请求");
+            SetText("add-selection-button", "+ Selection", "+ 选择");
+            SetText("add-console-button", "+ Console", "+ 控制台");
+            SetText("add-file-button", "+ File", "+ 文件");
+            SetText("add-scene-button", "+ Scene", "+ 场景");
+            SetText("add-git-diff-button", "+ Git Diff", "+ Git 差异");
+            SetText("add-screenshot-button", "+ Screenshot", "+ 截图");
+            SetText("interrupt-button", "Stop", "停止");
+            SetText("continue-fix-button", "Continue Fix", "继续修复");
+            SetText("chat-approval-title", "Permission required", "需要权限");
+            SetText("approval-alert-title", "ACTION REQUIRED", "需要操作");
+            SetText("chat-approval-message", "Codex is waiting for your decision.", "Codex 正在等待你的决定。");
+            SetText("approval-alert-message", "Codex is waiting for permission before it can continue.", "Codex 正在等待权限后继续。");
+            _modelField.tooltip = T("Model", "模型");
+            _reasoningField.tooltip = T("Reasoning effort", "推理强度");
+            _languageField.tooltip = T("Interface language", "界面语言");
+            _compileFoldout.text = T("Unity Compile", "Unity 编译");
+            _diffFoldout.text = T("Turn Diff", "本轮差异");
+        }
+
+        private void SetText(string name, string english, string chinese, string englishTooltip = null, string chineseTooltip = null)
+        {
+            var element = rootVisualElement.Q<TextElement>(name);
+            if (element == null)
+            {
+                return;
+            }
+
+            element.text = T(english, chinese);
+            if (englishTooltip != null)
+            {
+                element.tooltip = T(englishTooltip, chineseTooltip);
+            }
+        }
+
+        private static IReadOnlyList<string> PermissionChoices => new[]
+        {
+            T("Ask for Approval", "请求批准"),
+            T("Approve for Me", "帮我批准"),
+            T("Full Access", "完全访问权限")
+        };
+
         private static string PermissionLabel(AgentPermissionMode mode)
         {
             var index = (int)mode;
@@ -1708,16 +1823,104 @@ namespace AgentForUnity.Editor.UI
                 : PermissionChoices[(int)AgentPermissionMode.CodexDecides];
         }
 
+        private static string DisplayReasoningEffort(string effort)
+        {
+            if (!IsChinese)
+            {
+                return effort;
+            }
+
+            switch (effort)
+            {
+                case "none": return "无";
+                case "minimal": return "极低";
+                case "low": return "低";
+                case "medium": return "中";
+                case "high": return "高";
+                case "xhigh": return "超高";
+                case "max": return "最大";
+                case "ultra": return "极致";
+                default: return effort;
+            }
+        }
+
+        private static string LocalizeConnectionState(string state)
+        {
+            if (string.IsNullOrWhiteSpace(state))
+            {
+                return T("Not checked", "未检查");
+            }
+
+            switch (state)
+            {
+                case "Ready":
+                    return T("Ready", "已连接");
+                case "Connecting":
+                    return T("Connecting", "正在连接");
+                case "Disconnected":
+                    return T("Disconnected", "已断开");
+                case "Faulted":
+                    return T("Faulted", "连接失败");
+                case "SignedOut":
+                    return T("Signed out", "未登录");
+                default:
+                    return state;
+            }
+        }
+
+        private static string LocalizeTurnState(string state, string fallback)
+        {
+            switch (state)
+            {
+                case "Idle": return T("Idle", "空闲");
+                case "Starting": return T("Starting", "正在开始");
+                case "Running": return T("Running", "进行中");
+                case "WaitingForApproval": return T("Waiting for approval", "等待审批");
+                case "WaitingForUserInput": return T("Waiting for user input", "等待用户输入");
+                case "Interrupting": return T("Interrupting", "正在停止");
+                case "Completed": return T("Completed", "已完成");
+                case "Failed": return T("Failed", "失败");
+                case "Interrupted": return T("Interrupted", "已中断");
+                default: return DisplayValue(state, fallback);
+            }
+        }
+
+        private static string LocalizeStatusText(string status, string fallback)
+        {
+            if (!IsChinese || string.IsNullOrWhiteSpace(status))
+            {
+                return DisplayValue(status, fallback);
+            }
+
+            switch (status)
+            {
+                case "Connected - thread restored": return "已连接 - 已恢复对话";
+                case "Connected - active turn restored": return "已连接 - 已恢复进行中的回合";
+                case "Connected - thread recovery failed": return "已连接 - 恢复对话失败";
+                case "Conversation restored": return "已恢复对话";
+                case "Active conversation restored": return "已恢复进行中的对话";
+                case "Completed": return "已完成";
+                case "Interrupted": return "已中断";
+                case "Failed": return "失败";
+                case "Working": return "处理中";
+                case "Waiting for approval": return "等待审批";
+                case "Waiting for command approval": return "等待命令审批";
+                case "Waiting for file approval": return "等待文件审批";
+                case "Waiting for user input": return "等待用户输入";
+                default: return status;
+            }
+        }
+
         private static string PermissionDescription(AgentPermissionMode mode)
         {
             switch (mode)
             {
                 case AgentPermissionMode.AskApproval:
-                    return "Ask before untrusted operations; project-external files and network access require approval.";
+                    return T("Ask before using the internet or accessing files outside this project.", "使用互联网或访问项目外文件前请求批准。");
                 case AgentPermissionMode.FullAccess:
-                    return "Allow unrestricted file, command, and network access without approval.";
+                    return T("Allow unrestricted file, command, and network access without approval.", "无需审批即可无限制访问文件、命令和网络。");
                 default:
-                    return "Let Codex request approval only when it detects an operation needs elevated access.";
+                    return T("Let Codex automatically review requests for additional access and ask only when needed.", "由 Codex 自动审阅额外访问请求，仅在需要时询问你。");
             }
         }
 
@@ -1765,11 +1968,11 @@ namespace AgentForUnity.Editor.UI
             role.AddToClassList("afu-message__role");
             header.Add(role);
 
-            var streaming = new Label("Streaming");
+            var streaming = new Label(T("Streaming", "生成中"));
             streaming.AddToClassList("afu-message__streaming");
             header.Add(streaming);
 
-            var copy = new Button { text = "⧉", tooltip = "Copy message text" };
+            var copy = new Button { text = "⧉", tooltip = T("Copy message text", "复制消息文本") };
             copy.AddToClassList("afu-message__copy");
             header.Add(copy);
 
@@ -1794,7 +1997,7 @@ namespace AgentForUnity.Editor.UI
             body.RegisterCallback<ContextualMenuPopulateEvent>(evt =>
             {
                 evt.menu.AppendAction(
-                    "Copy message text",
+                    T("Copy message text", "复制消息文本"),
                     _ => EditorGUIUtility.systemCopyBuffer = row.RawText ?? string.Empty,
                     _ => string.IsNullOrEmpty(row.RawText)
                         ? DropdownMenuAction.Status.Disabled
@@ -1808,27 +2011,86 @@ namespace AgentForUnity.Editor.UI
             if (string.Equals(role, "assistant", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(role, "agent", StringComparison.OrdinalIgnoreCase))
             {
-                return "Agent";
+                return T("Agent", "助手");
             }
 
             if (string.Equals(role, "user", StringComparison.OrdinalIgnoreCase))
             {
-                return "User";
+                return T("User", "用户");
             }
 
-            return string.IsNullOrWhiteSpace(role) ? "System" : role;
+            return string.IsNullOrWhiteSpace(role) ? T("System", "系统") : role;
         }
 
         private static string ShortProjectName(string projectRoot)
         {
             if (string.IsNullOrWhiteSpace(projectRoot))
             {
-                return "Project unavailable";
+                return T("Project unavailable", "项目不可用");
             }
 
             var normalized = projectRoot.TrimEnd('/', '\\');
             var slash = Math.Max(normalized.LastIndexOf('/'), normalized.LastIndexOf('\\'));
             return slash >= 0 && slash < normalized.Length - 1 ? normalized.Substring(slash + 1) : normalized;
+        }
+
+        private static string LocalizeAccountUsage(string usage)
+        {
+            if (!IsChinese || string.IsNullOrWhiteSpace(usage))
+            {
+                return usage;
+            }
+
+            var lines = usage.Split(new[] { '\n' }, StringSplitOptions.None);
+            for (var i = 0; i < lines.Length; i++)
+            {
+                lines[i] = LocalizeAccountUsageLine(lines[i]);
+            }
+
+            return string.Join("\n", lines);
+        }
+
+        private static string LocalizeAccountUsageLine(string line)
+        {
+            var value = (line ?? string.Empty)
+                .Replace(" hours", " 小时")
+                .Replace(" minutes", " 分钟")
+                .Replace(" week", " 周")
+                .Replace("Usage", "额度")
+                .Replace("Unavailable", "不可用");
+            var parts = value.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 2 || !int.TryParse(parts[parts.Length - 1], out var day))
+            {
+                return value;
+            }
+
+            if (!TryGetMonth(parts[parts.Length - 2], out var month))
+            {
+                return value;
+            }
+
+            var englishDate = parts[parts.Length - 2] + " " + day;
+            return value.Replace(englishDate, month + "月" + day + "日");
+        }
+
+        private static bool TryGetMonth(string value, out int month)
+        {
+            switch (value)
+            {
+                case "Jan": month = 1; return true;
+                case "Feb": month = 2; return true;
+                case "Mar": month = 3; return true;
+                case "Apr": month = 4; return true;
+                case "May": month = 5; return true;
+                case "Jun": month = 6; return true;
+                case "Jul": month = 7; return true;
+                case "Aug": month = 8; return true;
+                case "Sep": month = 9; return true;
+                case "Oct": month = 10; return true;
+                case "Nov": month = 11; return true;
+                case "Dec": month = 12; return true;
+                default: month = 0; return false;
+            }
         }
 
         private static void SetLabelValue(Label label, string value, string fallback)
@@ -1840,6 +2102,15 @@ namespace AgentForUnity.Editor.UI
         private static string DisplayValue(string value, string fallback)
         {
             return string.IsNullOrWhiteSpace(value) ? fallback : value;
+        }
+
+        internal static bool IsChinese => EditorPrefs.GetBool(LanguagePreferenceKey, false);
+
+        internal static event Action InterfaceLanguageChanged;
+
+        internal static string T(string english, string chinese)
+        {
+            return IsChinese ? chinese : english;
         }
 
         private static bool ContainsIgnoreCase(string value, string search)
@@ -1861,17 +2132,21 @@ namespace AgentForUnity.Editor.UI
             identity.Add(connection);
             var headerMetadata = Element(null, "afu-header__metadata");
             var cliMetadata = Element(null, "afu-header__metadata-item");
-            cliMetadata.Add(Label(null, "CLI", "afu-header__metadata-caption"));
+            cliMetadata.Add(Label("cli-caption", "CLI", "afu-header__metadata-caption"));
             cliMetadata.Add(Label("cli-version-value", string.Empty, "afu-header__metadata-value"));
             headerMetadata.Add(cliMetadata);
             var projectMetadata = Element(null, "afu-header__metadata-item");
-            projectMetadata.Add(Label(null, "Project", "afu-header__metadata-caption"));
+            projectMetadata.Add(Label("project-caption", "Project", "afu-header__metadata-caption"));
             projectMetadata.Add(Label("project-value", string.Empty, "afu-header__metadata-value"));
             headerMetadata.Add(projectMetadata);
             identity.Add(headerMetadata);
             header.Add(identity);
 
             var headerActions = Element(null, "afu-header__actions");
+            var languageField = new DropdownField { name = "language-field", tooltip = "Interface language" };
+            languageField.AddToClassList("afu-select");
+            languageField.AddToClassList("afu-select--language");
+            headerActions.Add(languageField);
             headerActions.Add(Button("reconnect-button", "Reconnect", "Restart connection detection"));
             headerActions.Add(Button("disconnect-button", "Disconnect", "Stop the Codex App Server connection"));
             header.Add(headerActions);
@@ -1884,7 +2159,7 @@ namespace AgentForUnity.Editor.UI
             var workspace = Element(null, "afu-workspace");
             var conversationsPane = Element(null, "afu-conversations-pane");
             var conversationsHeader = Element(null, "afu-conversations-header");
-            conversationsHeader.Add(Label(null, "Conversations", "afu-conversations-title"));
+            conversationsHeader.Add(Label("conversations-caption", "Conversations", "afu-conversations-title"));
             var conversationsActions = Element(null, "afu-conversations-actions");
             var newThread = Button("new-thread-button", "New Thread", "Start a new project-scoped thread");
             newThread.AddToClassList("afu-conversations-new");
@@ -1901,14 +2176,14 @@ namespace AgentForUnity.Editor.UI
             conversationsPane.Add(conversationsScroll);
             var accountSummary = Element(null, "afu-account-summary");
             accountSummary.Add(Label("account-value", string.Empty, "afu-account-summary__value"));
-            accountSummary.Add(Label(null, "Remaining", "afu-account-summary__caption"));
+            accountSummary.Add(Label("remaining-caption", "Remaining", "afu-account-summary__caption"));
             accountSummary.Add(Label("account-usage-value", string.Empty, "afu-account-summary__value"));
             conversationsPane.Add(accountSummary);
             workspace.Add(conversationsPane);
 
             var chatPane = Element(null, "afu-chat-pane");
             var threadBar = Element(null, "afu-thread-bar");
-            threadBar.Add(Label(null, "Thread", "afu-field-caption"));
+            threadBar.Add(Label("thread-caption", "Thread", "afu-field-caption"));
             threadBar.Add(Label("thread-value", "New conversation", "afu-thread-value"));
             threadBar.Add(Label("turn-activity-indicator", string.Empty, "afu-turn-activity"));
             threadBar.Add(Label("turn-state", "Idle", "afu-turn-state"));
@@ -2117,14 +2392,14 @@ namespace AgentForUnity.Editor.UI
             }
             else
             {
-                var unavailable = new Label("Image unavailable");
+                var unavailable = new Label(T("Image unavailable", "图片不可用"));
                 unavailable.AddToClassList("afu-screenshot-preview__unavailable");
                 preview.Add(unavailable);
             }
 
             if (removeAction != null)
             {
-                var remove = new Button(removeAction) { text = "×", tooltip = "Remove screenshot" };
+                var remove = new Button(removeAction) { text = "×", tooltip = T("Remove screenshot", "移除截图") };
                 remove.AddToClassList("afu-screenshot-preview__remove");
                 preview.Add(remove);
             }
@@ -2233,12 +2508,12 @@ namespace AgentForUnity.Editor.UI
 
     internal sealed class AgentForUnityConsolePickerWindow : EditorWindow
     {
-        private static readonly IReadOnlyList<string> LogTypeChoices = new[]
+        private static IReadOnlyList<string> LogTypeChoices => new[]
         {
-            "All levels",
-            "Errors & Exceptions",
-            "Warnings",
-            "Logs"
+            T("All levels", "所有级别"),
+            T("Errors & Exceptions", "错误和异常"),
+            T("Warnings", "警告"),
+            T("Logs", "日志")
         };
 
         private readonly HashSet<long> _selectedIds = new HashSet<long>();
@@ -2257,7 +2532,7 @@ namespace AgentForUnity.Editor.UI
             Action<IReadOnlyList<AgentConsoleLogEntry>> onConfirm)
         {
             var window = CreateInstance<AgentForUnityConsolePickerWindow>();
-            window.titleContent = new GUIContent("Select Console Logs");
+            window.titleContent = new GUIContent(T("Select Console Logs", "选择控制台日志"));
             window.minSize = new Vector2(520f, 360f);
             window._entries = entries ?? Array.Empty<AgentConsoleLogEntry>();
             window._onConfirm = onConfirm;
@@ -2278,13 +2553,13 @@ namespace AgentForUnity.Editor.UI
             root.style.paddingBottom = 10f;
             root.style.paddingLeft = 10f;
 
-            var title = new Label("Select Console logs to attach");
+            var title = new Label(T("Select Console logs to attach", "选择要附加的控制台日志"));
             title.style.flexShrink = 0f;
             title.style.fontSize = 14f;
             title.style.unityFontStyleAndWeight = FontStyle.Bold;
             root.Add(title);
 
-            var description = new Label("Only checked logs and their stack traces will be sent as context.");
+            var description = new Label(T("Only checked logs and their stack traces will be sent as context.", "仅会将勾选的日志及其堆栈跟踪作为上下文发送。"));
             description.style.marginTop = 3f;
             description.style.marginBottom = 8f;
             description.style.whiteSpace = WhiteSpace.Normal;
@@ -2296,13 +2571,13 @@ namespace AgentForUnity.Editor.UI
             filters.style.flexWrap = Wrap.Wrap;
             filters.style.alignItems = Align.FlexEnd;
             filters.style.flexShrink = 0f;
-            _searchField = new TextField("Search message or stack trace");
+            _searchField = new TextField(T("Search message or stack trace", "搜索消息或堆栈跟踪"));
             _searchField.style.flexGrow = 1f;
             _searchField.style.minWidth = 200f;
             _searchField.style.marginRight = 8f;
             _searchField.RegisterValueChangedCallback(_ => RefreshFilters());
             filters.Add(_searchField);
-            _logTypeField = new DropdownField("Level", LogTypeChoices.ToList(), 0);
+            _logTypeField = new DropdownField(T("Level", "级别"), LogTypeChoices.ToList(), 0);
             _logTypeField.style.minWidth = 180f;
             _logTypeField.style.marginBottom = 3f;
             _logTypeField.RegisterValueChangedCallback(_ => RefreshFilters());
@@ -2315,8 +2590,8 @@ namespace AgentForUnity.Editor.UI
             toolbar.style.alignItems = Align.Center;
             toolbar.style.marginTop = 7f;
             toolbar.style.flexShrink = 0f;
-            toolbar.Add(new Button(SelectVisible) { text = "Select Visible" });
-            var clearButton = new Button(ClearSelection) { text = "Clear Selection" };
+            toolbar.Add(new Button(SelectVisible) { text = T("Select Visible", "选择当前可见项") });
+            var clearButton = new Button(ClearSelection) { text = T("Clear Selection", "清除选择") };
             clearButton.style.marginLeft = 5f;
             toolbar.Add(clearButton);
             _selectionSummary = new Label();
@@ -2362,8 +2637,8 @@ namespace AgentForUnity.Editor.UI
             actions.style.flexShrink = 0f;
             actions.style.flexDirection = FlexDirection.Row;
             actions.style.justifyContent = Justify.FlexEnd;
-            actions.Add(new Button(Close) { text = "Cancel" });
-            _addButton = new Button(ConfirmSelection) { text = "Add Selected" };
+            actions.Add(new Button(Close) { text = T("Cancel", "取消") });
+            _addButton = new Button(ConfirmSelection) { text = T("Add Selected", "添加已选项") };
             _addButton.style.marginLeft = 6f;
             actions.Add(_addButton);
             root.Add(actions);
@@ -2406,7 +2681,7 @@ namespace AgentForUnity.Editor.UI
             toggle.tooltip = string.IsNullOrWhiteSpace(entry.StackTrace)
                 ? entry.Message
                 : entry.Message + "\n\n" + entry.StackTrace;
-            toggle.text = $"[{entry.Type}] {FirstLine(entry.Message)}";
+            toggle.text = $"[{DisplayLogType(entry.Type)}] {FirstLine(entry.Message)}";
         }
 
         private void RefreshFilters()
@@ -2428,8 +2703,8 @@ namespace AgentForUnity.Editor.UI
             _listView.style.display = hasResults ? DisplayStyle.Flex : DisplayStyle.None;
             _emptyLabel.style.display = hasResults ? DisplayStyle.None : DisplayStyle.Flex;
             _emptyLabel.text = _entries.Count == 0
-                ? "Unity Console is empty."
-                : "No logs match the current filters.";
+                ? T("Unity Console is empty.", "Unity 控制台为空。")
+                : T("No logs match the current filters.", "没有日志符合当前筛选条件。");
             RefreshSelectionState();
         }
 
@@ -2456,7 +2731,9 @@ namespace AgentForUnity.Editor.UI
             var selectedCount = _selectedIds.Count;
             if (_selectionSummary != null)
             {
-                _selectionSummary.text = $"{selectedCount} selected · {_filteredEntries.Count} shown / {_entries.Count} in Console";
+                _selectionSummary.text = AgentForUnityWindow.IsChinese
+                    ? $"已选 {selectedCount} 项 · 显示 {_filteredEntries.Count} / 控制台共 {_entries.Count} 项"
+                    : $"{selectedCount} selected · {_filteredEntries.Count} shown / {_entries.Count} in Console";
             }
 
             _addButton?.SetEnabled(selectedCount > 0);
@@ -2479,17 +2756,17 @@ namespace AgentForUnity.Editor.UI
 
         private static bool MatchesType(LogType type, string filter)
         {
-            switch (filter)
+            if (filter == T("Errors & Exceptions", "错误和异常"))
             {
-                case "Errors & Exceptions":
-                    return type == LogType.Error || type == LogType.Assert || type == LogType.Exception;
-                case "Warnings":
-                    return type == LogType.Warning;
-                case "Logs":
-                    return type == LogType.Log;
-                default:
-                    return true;
+                return type == LogType.Error || type == LogType.Assert || type == LogType.Exception;
             }
+
+            if (filter == T("Warnings", "警告"))
+            {
+                return type == LogType.Warning;
+            }
+
+            return filter != T("Logs", "日志") || type == LogType.Log;
         }
 
         private static bool MatchesSearch(AgentConsoleLogEntry entry, string search)
@@ -2499,11 +2776,28 @@ namespace AgentForUnity.Editor.UI
                    entry.StackTrace.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
+        private static string DisplayLogType(LogType type)
+        {
+            switch (type)
+            {
+                case LogType.Error:
+                    return T("Error", "错误");
+                case LogType.Assert:
+                    return T("Assert", "断言");
+                case LogType.Warning:
+                    return T("Warning", "警告");
+                case LogType.Exception:
+                    return T("Exception", "异常");
+                default:
+                    return T("Log", "日志");
+            }
+        }
+
         private static string FirstLine(string value)
         {
             if (string.IsNullOrWhiteSpace(value))
             {
-                return "(empty message)";
+                return T("(empty message)", "（空消息）");
             }
 
             var normalized = value.Replace('\r', '\n');
@@ -2511,6 +2805,11 @@ namespace AgentForUnity.Editor.UI
             var line = lineEnd < 0 ? normalized : normalized.Substring(0, lineEnd);
             const int maximumLength = 140;
             return line.Length <= maximumLength ? line : line.Substring(0, maximumLength) + "…";
+        }
+
+        private static string T(string english, string chinese)
+        {
+            return AgentForUnityWindow.T(english, chinese);
         }
     }
 }

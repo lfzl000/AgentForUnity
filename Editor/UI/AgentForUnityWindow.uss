@@ -105,6 +105,12 @@
     margin-left: 5px;
 }
 
+.afu-header__actions > .afu-select--language {
+    min-width: 82px;
+    max-width: 96px;
+    margin: 0 5px 0 0;
+}
+
 .afu-diagnostics-launcher {
     position: absolute;
     right: 8px;
@@ -335,21 +341,25 @@
 }
 
 .afu-select {
-    min-width: 170px;
-    max-width: 260px;
+    width: 120px;
+    min-width: 120px;
+    max-width: 120px;
     flex-grow: 0;
+    flex-shrink: 0;
     margin-right: 5px;
     margin-bottom: 3px;
 }
 
 .afu-select--reasoning {
-    min-width: 105px;
-    max-width: 145px;
+    width: 60px;
+    min-width: 60px;
+    max-width: 60px;
 }
 
 .afu-select--permission {
-    min-width: 145px;
-    max-width: 190px;
+    width: 105px;
+    min-width: 105px;
+    max-width: 105px;
 }
 
 .afu-turn-state {
@@ -894,12 +904,12 @@
     flex-direction: row;
     flex-wrap: wrap;
     align-items: flex-end;
-    justify-content: space-between;
+    justify-content: flex-start;
 }
 
 .afu-composer__settings {
     min-width: 0;
-    flex-grow: 1;
+    flex-grow: 0;
     flex-shrink: 1;
     flex-direction: row;
     flex-wrap: wrap;
@@ -909,13 +919,13 @@
 .afu-composer__commands {
     flex-shrink: 0;
     flex-direction: row;
-    margin-left: auto;
+    margin-left: 0;
 }
 
 .afu-context-usage {
     display: none;
     min-width: 38px;
-    margin: 0 8px 1px 8px;
+    margin: 0 8px 1px auto;
     padding: 2px 6px;
     white-space: nowrap;
     font-size: 10px;
@@ -1166,6 +1176,7 @@
 }
 
 .afu-root.afu--compact .afu-select {
+    width: auto;
     min-width: 120px;
     max-width: none;
     flex-grow: 1;

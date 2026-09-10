@@ -54,15 +54,12 @@ namespace AgentForUnity.Editor.Application
     {
         internal static string GetApprovalPolicy(AgentPermissionMode mode)
         {
-            switch (mode)
-            {
-                case AgentPermissionMode.AskApproval:
-                    return "untrusted";
-                case AgentPermissionMode.FullAccess:
-                    return "never";
-                default:
-                    return "on-request";
-            }
+            return mode == AgentPermissionMode.FullAccess ? "never" : "on-request";
+        }
+
+        internal static string GetApprovalsReviewer(AgentPermissionMode mode)
+        {
+            return mode == AgentPermissionMode.CodexDecides ? "auto_review" : "user";
         }
 
         internal static string GetThreadSandboxMode(AgentPermissionMode mode)
@@ -607,6 +604,7 @@ namespace AgentForUnity.Editor.Application
                     ["input"] = BuildTurnInput(prompt, submittedContexts),
                     ["cwd"] = _projectRoot,
                     ["approvalPolicy"] = AgentPermissionPolicy.GetApprovalPolicy(_permissionMode),
+                    ["approvalsReviewer"] = AgentPermissionPolicy.GetApprovalsReviewer(_permissionMode),
                     ["sandboxPolicy"] = AgentPermissionPolicy.CreateSandboxPolicy(_permissionMode, _projectRoot)
                 };
                 AddOptional(parameters, "model", _selectedModelId);
@@ -1166,6 +1164,7 @@ namespace AgentForUnity.Editor.Application
                 ["cwd"] = _projectRoot,
                 ["sandbox"] = AgentPermissionPolicy.GetThreadSandboxMode(_permissionMode),
                 ["approvalPolicy"] = AgentPermissionPolicy.GetApprovalPolicy(_permissionMode),
+                ["approvalsReviewer"] = AgentPermissionPolicy.GetApprovalsReviewer(_permissionMode),
                 ["developerInstructions"] = UnityCompilationDeveloperInstructions
             };
             AddOptional(parameters, "model", _selectedModelId);
@@ -1224,6 +1223,7 @@ namespace AgentForUnity.Editor.Application
                     ["cwd"] = _projectRoot,
                     ["sandbox"] = AgentPermissionPolicy.GetThreadSandboxMode(_permissionMode),
                     ["approvalPolicy"] = AgentPermissionPolicy.GetApprovalPolicy(_permissionMode),
+                    ["approvalsReviewer"] = AgentPermissionPolicy.GetApprovalsReviewer(_permissionMode),
                     ["developerInstructions"] = UnityCompilationDeveloperInstructions
                 });
             EnsureCurrentClient(client, generation);

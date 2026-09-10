@@ -10,16 +10,17 @@
                 </ui:VisualElement>
                 <ui:VisualElement class="afu-header__metadata">
                     <ui:VisualElement class="afu-header__metadata-item">
-                        <ui:Label text="CLI" class="afu-header__metadata-caption" />
+                        <ui:Label name="cli-caption" text="CLI" class="afu-header__metadata-caption" />
                         <ui:Label name="cli-version-value" class="afu-header__metadata-value" />
                     </ui:VisualElement>
                     <ui:VisualElement class="afu-header__metadata-item">
-                        <ui:Label text="Project" class="afu-header__metadata-caption" />
+                        <ui:Label name="project-caption" text="Project" class="afu-header__metadata-caption" />
                         <ui:Label name="project-value" class="afu-header__metadata-value" />
                     </ui:VisualElement>
                 </ui:VisualElement>
             </ui:VisualElement>
             <ui:VisualElement class="afu-header__actions">
+                <ui:DropdownField name="language-field" tooltip="Interface language" class="afu-select afu-select--language" />
                 <ui:Button name="reconnect-button" text="Reconnect" tooltip="Restart connection detection" />
                 <ui:Button name="disconnect-button" text="Disconnect" tooltip="Stop the Codex App Server connection" />
             </ui:VisualElement>
@@ -32,7 +33,7 @@
         <ui:VisualElement class="afu-workspace">
             <ui:VisualElement class="afu-conversations-pane">
                 <ui:VisualElement class="afu-conversations-header">
-                    <ui:Label text="Conversations" class="afu-conversations-title" />
+                    <ui:Label name="conversations-caption" text="Conversations" class="afu-conversations-title" />
                     <ui:VisualElement class="afu-conversations-actions">
                         <ui:Button name="new-thread-button" text="New Thread" tooltip="Start a new project-scoped thread" class="afu-conversations-new afu-primary-button" />
                         <ui:Button name="refresh-threads-button" text="↻" tooltip="Reload conversations for this Unity project" class="afu-conversations-refresh" />
@@ -43,14 +44,14 @@
                 </ui:ScrollView>
                 <ui:VisualElement class="afu-account-summary">
                     <ui:Label name="account-value" class="afu-account-summary__value" />
-                    <ui:Label text="Remaining" class="afu-account-summary__caption" />
+                    <ui:Label name="remaining-caption" text="Remaining" class="afu-account-summary__caption" />
                     <ui:Label name="account-usage-value" class="afu-account-summary__value" />
                 </ui:VisualElement>
             </ui:VisualElement>
 
             <ui:VisualElement class="afu-chat-pane">
                 <ui:VisualElement class="afu-thread-bar">
-                    <ui:Label text="Thread" class="afu-field-caption" />
+                    <ui:Label name="thread-caption" text="Thread" class="afu-field-caption" />
                     <ui:Label name="thread-value" text="New conversation" class="afu-thread-value" />
                     <ui:Label name="turn-activity-indicator" class="afu-turn-activity" />
                     <ui:Label name="turn-state" text="Idle" class="afu-turn-state" />

@@ -67,18 +67,20 @@ namespace AgentForUnity.Editor.Tests
 
     internal sealed class AgentPermissionPolicyTests
     {
-        [TestCase(AgentPermissionMode.AskApproval, "untrusted", "workspace-write", "workspaceWrite")]
-        [TestCase(AgentPermissionMode.CodexDecides, "on-request", "workspace-write", "workspaceWrite")]
-        [TestCase(AgentPermissionMode.FullAccess, "never", "danger-full-access", "dangerFullAccess")]
+        [TestCase(AgentPermissionMode.AskApproval, "on-request", "user", "workspace-write", "workspaceWrite")]
+        [TestCase(AgentPermissionMode.CodexDecides, "on-request", "auto_review", "workspace-write", "workspaceWrite")]
+        [TestCase(AgentPermissionMode.FullAccess, "never", "user", "danger-full-access", "dangerFullAccess")]
         public void PermissionMode_MapsToCodexProtocol(
             AgentPermissionMode mode,
             string approvalPolicy,
+            string approvalsReviewer,
             string threadSandbox,
             string turnSandbox)
         {
             var sandboxPolicy = AgentPermissionPolicy.CreateSandboxPolicy(mode, "/project");
 
             Assert.That(AgentPermissionPolicy.GetApprovalPolicy(mode), Is.EqualTo(approvalPolicy));
+            Assert.That(AgentPermissionPolicy.GetApprovalsReviewer(mode), Is.EqualTo(approvalsReviewer));
             Assert.That(AgentPermissionPolicy.GetThreadSandboxMode(mode), Is.EqualTo(threadSandbox));
             Assert.That(sandboxPolicy.Value<string>("type"), Is.EqualTo(turnSandbox));
 

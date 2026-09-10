@@ -10,6 +10,7 @@ namespace AgentForUnity.Editor.UI
     {
         private AgentForUnityService _service;
         private VisualElement _diagnosticsList;
+        private Label _title;
         private Label _summary;
         private int _lastDiagnosticsVersion = -1;
 
@@ -17,7 +18,7 @@ namespace AgentForUnity.Editor.UI
         internal static void Open()
         {
             var window = GetWindow<AgentForUnityDiagnosticsWindow>();
-            window.titleContent = new GUIContent("Agent Diagnostics");
+            window.titleContent = new GUIContent(T("Agent Diagnostics", "Agent 诊断"));
             window.minSize = new Vector2(480f, 320f);
             window.Show();
         }
@@ -27,6 +28,8 @@ namespace AgentForUnity.Editor.UI
             _service = AgentForUnityService.Instance;
             _service.Changed -= RefreshFromService;
             _service.Changed += RefreshFromService;
+            AgentForUnityWindow.InterfaceLanguageChanged -= RefreshLanguage;
+            AgentForUnityWindow.InterfaceLanguageChanged += RefreshLanguage;
         }
 
         private void OnDisable()
@@ -35,6 +38,8 @@ namespace AgentForUnity.Editor.UI
             {
                 _service.Changed -= RefreshFromService;
             }
+
+            AgentForUnityWindow.InterfaceLanguageChanged -= RefreshLanguage;
         }
 
         public void CreateGUI()
@@ -51,11 +56,11 @@ namespace AgentForUnity.Editor.UI
             var header = new VisualElement();
             header.style.flexDirection = FlexDirection.Row;
             header.style.alignItems = Align.Center;
-            var title = new Label("Diagnostics");
-            title.style.fontSize = 14f;
-            title.style.unityFontStyleAndWeight = FontStyle.Bold;
-            title.style.flexGrow = 1f;
-            header.Add(title);
+            _title = new Label(T("Diagnostics", "诊断"));
+            _title.style.fontSize = 14f;
+            _title.style.unityFontStyleAndWeight = FontStyle.Bold;
+            _title.style.flexGrow = 1f;
+            header.Add(_title);
             _summary = new Label();
             _summary.style.opacity = 0.65f;
             header.Add(_summary);
@@ -87,6 +92,18 @@ namespace AgentForUnity.Editor.UI
             RefreshFromService();
         }
 
+        private void RefreshLanguage()
+        {
+            titleContent = new GUIContent(T("Agent Diagnostics", "Agent 诊断"));
+            if (_title != null)
+            {
+                _title.text = T("Diagnostics", "诊断");
+            }
+
+            _lastDiagnosticsVersion = -1;
+            RefreshFromService();
+        }
+
         private void RefreshFromService()
         {
             if (_service == null || _diagnosticsList == null ||
@@ -97,11 +114,13 @@ namespace AgentForUnity.Editor.UI
 
             _lastDiagnosticsVersion = _service.DiagnosticsVersion;
             var diagnostics = _service.Diagnostics ?? Array.Empty<string>();
-            _summary.text = diagnostics.Count == 0 ? "No diagnostics" : diagnostics.Count + " entries";
+            _summary.text = diagnostics.Count == 0
+                ? T("No diagnostics", "暂无诊断记录")
+                : AgentForUnityWindow.IsChinese ? diagnostics.Count + " 条记录" : diagnostics.Count + " entries";
             _diagnosticsList.Clear();
             if (diagnostics.Count == 0)
             {
-                var empty = new Label("No diagnostics have been recorded.");
+                var empty = new Label(T("No diagnostics have been recorded.", "尚未记录诊断信息。"));
                 empty.style.opacity = 0.6f;
                 _diagnosticsList.Add(empty);
                 return;
@@ -109,7 +128,8 @@ namespace AgentForUnity.Editor.UI
 
             foreach (var entry in diagnostics)
             {
-                var diagnostic = new Label(entry ?? string.Empty) { enableRichText = false };
+                var diagnostic = new Label(LocalizeDiagnosticEntry(entry)) { enableRichText = false };
+                diagnostic.tooltip = entry ?? string.Empty;
                 diagnostic.style.whiteSpace = WhiteSpace.Normal;
                 diagnostic.style.marginBottom = 5f;
                 diagnostic.style.paddingTop = 5f;
@@ -121,6 +141,25 @@ namespace AgentForUnity.Editor.UI
                 diagnostic.style.backgroundColor = new Color(0f, 0f, 0f, 0.055f);
                 _diagnosticsList.Add(diagnostic);
             }
+        }
+
+        private static string T(string english, string chinese)
+        {
+            return AgentForUnityWindow.T(english, chinese);
+        }
+
+        private static string LocalizeDiagnosticEntry(string entry)
+        {
+            const string englishPrefix = "Ignored unknown notification: ";
+            var value = entry ?? string.Empty;
+            var prefixIndex = value.IndexOf(englishPrefix, StringComparison.Ordinal);
+            if (!AgentForUnityWindow.IsChinese || prefixIndex < 0)
+            {
+                return value;
+            }
+
+            return value.Substring(0, prefixIndex) + "已忽略未知通知：" +
+                   value.Substring(prefixIndex + englishPrefix.Length);
         }
     }
 }
