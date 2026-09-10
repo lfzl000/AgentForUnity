@@ -168,6 +168,8 @@ namespace AgentForUnity.Editor.Application
     {
         private const int MaxDiagnostics = 200;
         private const int MaxRestoredMessages = 100;
+        private const int ThreadPageSize = 20;
+        private const int MaxAutomaticThreadTitleLength = 48;
         private const int MaxReconnectAttempts = 3;
         private const double ReconnectStabilitySeconds = 30d;
         private const string UnityCompilationDeveloperInstructions =
@@ -212,6 +214,8 @@ namespace AgentForUnity.Editor.Application
         private string _selectedModelId;
         private string _selectedReasoningEffort;
         private string _threadId;
+        private string _threadAwaitingAutomaticTitle;
+        private string _nextThreadsCursor;
         private string _turnId;
         private AgentChatMessage _pendingUserMessage;
         private DateTime _turnStartedAtUtc;
@@ -249,6 +253,8 @@ namespace AgentForUnity.Editor.Application
         internal string AccountLabel { get; private set; } = "Unknown";
         internal string ProjectRoot => _projectRoot;
         internal string ThreadId => _threadId;
+        internal string CurrentThreadTitle => GetThreadTitle(
+            _threads.FirstOrDefault(thread => string.Equals(thread.Id, _threadId, StringComparison.Ordinal)));
         internal string TurnId => _turnId;
         internal TimeSpan? LastTurnDuration => _lastTurnDuration;
         internal TimeSpan? ActiveTurnDuration => IsTurnStarting && _turnStartedAtUtc != default
@@ -286,6 +292,8 @@ namespace AgentForUnity.Editor.Application
                                          !_operationInProgress;
         internal bool CanRefreshThreads => ConnectionState == AgentConnectionState.Ready && !_threadsLoading;
         internal bool ThreadsLoading => _threadsLoading;
+        internal bool HasMoreThreads => !string.IsNullOrEmpty(_nextThreadsCursor);
+        internal bool CanLoadMoreThreads => CanRefreshThreads && HasMoreThreads;
 
         internal AgentPermissionMode PermissionMode
         {
@@ -492,7 +500,18 @@ namespace AgentForUnity.Editor.Application
                 return;
             }
 
-            RefreshThreadsInBackground();
+            _nextThreadsCursor = null;
+            RefreshThreadsInBackground(false);
+        }
+
+        internal void LoadMoreThreads()
+        {
+            if (!CanLoadMoreThreads)
+            {
+                return;
+            }
+
+            RefreshThreadsInBackground(true);
         }
 
         internal async void Send(string prompt)
@@ -1040,6 +1059,7 @@ namespace AgentForUnity.Editor.Application
             }
 
             _threadId = threadId;
+            _threadAwaitingAutomaticTitle = threadId;
             _turnId = null;
             _threadReady = true;
             _threadReadOnly = false;
@@ -1096,6 +1116,7 @@ namespace AgentForUnity.Editor.Application
             _threadId = resumedId;
             _threadReady = true;
             _threadReadOnly = false;
+            KeepRecentTurnsForDisplay(thread);
             RebuildMessages(thread);
             if (IsTurnActive)
             {
@@ -1158,9 +1179,10 @@ namespace AgentForUnity.Editor.Application
                    exception.Message.IndexOf("already has an active writer", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
-        private async void RefreshThreadsInBackground()
+        private async void RefreshThreadsInBackground(bool append = false)
         {
-            if (_threadsLoading || _client == null || ConnectionState != AgentConnectionState.Ready)
+            if (_threadsLoading || _client == null || ConnectionState != AgentConnectionState.Ready ||
+                (append && string.IsNullOrEmpty(_nextThreadsCursor)))
             {
                 return;
             }
@@ -1168,47 +1190,70 @@ namespace AgentForUnity.Editor.Application
             _threadsLoading = true;
             var client = _client;
             var generation = _connectionGeneration;
+            var loadedThreads = append
+                ? new List<AgentThreadInfo>(_threads)
+                : new List<AgentThreadInfo>();
+            var cursor = append ? _nextThreadsCursor : null;
             MarkChanged();
             try
             {
-                var loadedThreads = new List<AgentThreadInfo>();
-                string cursor = null;
-                do
+                var parameters = new JObject
                 {
-                    var parameters = new JObject
-                    {
-                        ["limit"] = 100,
-                        ["cwd"] = _projectRoot,
-                        ["archived"] = false,
-                        ["sortKey"] = "updated_at",
-                        ["sortDirection"] = "desc"
-                    };
-                    if (!string.IsNullOrEmpty(cursor))
-                    {
-                        parameters["cursor"] = cursor;
-                    }
+                    ["limit"] = ThreadPageSize,
+                    ["cwd"] = _projectRoot,
+                    ["archived"] = false,
+                    // App Server otherwise defaults to CLI and VS Code threads only.
+                    ["sourceKinds"] = new JArray("cli", "vscode", "appServer"),
+                    ["sortKey"] = "updated_at",
+                    ["sortDirection"] = "desc"
+                };
+                if (!string.IsNullOrEmpty(cursor))
+                {
+                    parameters["cursor"] = cursor;
+                }
 
-                    var result = await client.SendRequestAsync("thread/list", parameters);
-                    EnsureCurrentClient(client, generation);
-                    if (result["data"] is JArray data)
+                var result = await client.SendRequestAsync("thread/list", parameters);
+                EnsureCurrentClient(client, generation);
+                if (result["data"] is JArray data)
+                {
+                    foreach (var thread in data.OfType<JObject>())
                     {
-                        foreach (var thread in data.OfType<JObject>())
+                        var info = ReadThreadInfo(thread);
+                        if (info != null && loadedThreads.All(value => !string.Equals(value.Id, info.Id, StringComparison.Ordinal)))
                         {
-                            var info = ReadThreadInfo(thread);
-                            if (info != null)
-                            {
-                                loadedThreads.Add(info);
-                            }
+                            loadedThreads.Add(info);
                         }
                     }
-
-                    cursor = result.Value<string>("nextCursor");
                 }
-                while (!string.IsNullOrEmpty(cursor));
+
+                _nextThreadsCursor = result.Value<string>("nextCursor");
 
                 EnsureCurrentClient(client, generation);
+                // A just-started thread is not guaranteed to be persisted before its first turn completes.
+                // Keep its locally created entry visible until App Server includes it in thread/list.
+                if (!append)
+                {
+                    var activeThread = _threads.FirstOrDefault(thread =>
+                        string.Equals(thread.Id, _threadId, StringComparison.Ordinal));
+                    if (activeThread != null && loadedThreads.All(thread =>
+                        !string.Equals(thread.Id, activeThread.Id, StringComparison.Ordinal)))
+                    {
+                        loadedThreads.Insert(0, activeThread);
+                    }
+                }
+
                 _threads.Clear();
                 _threads.AddRange(loadedThreads);
+            }
+            catch (CodexProtocolException exception) when (append &&
+                exception.Message.IndexOf("invalid cursor", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                if (IsCurrentClient(client, generation))
+                {
+                    _nextThreadsCursor = null;
+                    AddDiagnostic(
+                        "Could not load older conversations because Codex rejected its continuation cursor.");
+                }
             }
             catch (Exception exception)
             {
@@ -1237,6 +1282,31 @@ namespace AgentForUnity.Editor.Application
 
             _threads.RemoveAll(value => string.Equals(value.Id, info.Id, StringComparison.Ordinal));
             _threads.Insert(0, info);
+        }
+
+        private void UpdateThreadName(string threadId, string threadName)
+        {
+            var index = _threads.FindIndex(thread => string.Equals(thread.Id, threadId, StringComparison.Ordinal));
+            if (index < 0)
+            {
+                return;
+            }
+
+            var existing = _threads[index];
+            _threads[index] = new AgentThreadInfo(
+                existing.Id,
+                threadName,
+                existing.Preview,
+                existing.UpdatedAt,
+                existing.Status);
+        }
+
+        private static string GetThreadTitle(AgentThreadInfo thread)
+        {
+            var title = string.IsNullOrWhiteSpace(thread?.Name) ? thread?.Preview : thread.Name;
+            return string.IsNullOrWhiteSpace(title)
+                ? "New conversation"
+                : title.Replace('\r', ' ').Replace('\n', ' ').Trim();
         }
 
         private static AgentThreadInfo ReadThreadInfo(JObject thread)
@@ -1316,6 +1386,17 @@ namespace AgentForUnity.Editor.Application
             {
                 _messages.Add(_pendingUserMessage);
             }
+        }
+
+        private static void KeepRecentTurnsForDisplay(JObject thread)
+        {
+            if (!(thread?["turns"] is JArray turns) || turns.Count <= MaxRestoredMessages)
+            {
+                return;
+            }
+
+            thread["turns"] = new JArray(
+                turns.Skip(turns.Count - MaxRestoredMessages).Select(turn => turn.DeepClone()));
         }
 
         private void RestoreItem(
@@ -1407,6 +1488,9 @@ namespace AgentForUnity.Editor.Application
                 case "account/rateLimits/updated":
                 case "skills/changed":
                 case "thread/goal/cleared":
+                    break;
+                case "thread/name/updated":
+                    HandleThreadNameUpdated(message.Params);
                     break;
                 default:
                     if (TryHandleM1Notification(message))
@@ -1569,10 +1653,103 @@ namespace AgentForUnity.Editor.Application
             HandleM1TurnCompleted(completedTurnId, TurnState);
             UnlockDomainReloadForInactiveTurn();
             RequestCompilationVerificationAfterCompletedTurn(completedTurnId, TurnState);
+            SetAutomaticTitleAfterFirstCompletedTurn(completedTurnId);
 
             SaveState();
             MarkChanged();
             RefreshThreadsInBackground();
+        }
+
+        private void HandleThreadNameUpdated(JObject parameters)
+        {
+            var threadId = parameters?.Value<string>("threadId");
+            if (string.IsNullOrEmpty(threadId))
+            {
+                return;
+            }
+
+            UpdateThreadName(threadId, parameters.Value<string>("threadName"));
+            MarkChanged();
+        }
+
+        private void SetAutomaticTitleAfterFirstCompletedTurn(string completedTurnId)
+        {
+            if (TurnState != AgentTurnState.Completed ||
+                !string.Equals(_threadAwaitingAutomaticTitle, _threadId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _threadAwaitingAutomaticTitle = null;
+            var currentThread = _threads.FirstOrDefault(thread =>
+                string.Equals(thread.Id, _threadId, StringComparison.Ordinal));
+            if (!string.IsNullOrWhiteSpace(currentThread?.Name))
+            {
+                return;
+            }
+
+            var firstUserMessage = _messages.FirstOrDefault(message =>
+                message.Role == AgentChatRole.User &&
+                string.Equals(message.TurnId, completedTurnId, StringComparison.Ordinal));
+            var title = BuildAutomaticThreadTitle(firstUserMessage?.Text);
+            if (string.IsNullOrEmpty(title) || _client == null)
+            {
+                return;
+            }
+
+            SetThreadNameInBackground(_client, _connectionGeneration, _threadId, title);
+        }
+
+        private async void SetThreadNameInBackground(
+            CodexAppServerClient client,
+            int generation,
+            string threadId,
+            string title)
+        {
+            try
+            {
+                await client.SendRequestAsync(
+                    "thread/name/set",
+                    new JObject
+                    {
+                        ["threadId"] = threadId,
+                        ["name"] = title
+                    });
+                if (!IsCurrentClient(client, generation))
+                {
+                    return;
+                }
+
+                UpdateThreadName(threadId, title);
+                MarkChanged();
+            }
+            catch (Exception exception)
+            {
+                if (!IsCurrentClient(client, generation))
+                {
+                    return;
+                }
+
+                AddDiagnostic($"Could not set conversation title: {exception.Message}");
+                MarkChanged();
+            }
+        }
+
+        private static string BuildAutomaticThreadTitle(string prompt)
+        {
+            if (string.IsNullOrWhiteSpace(prompt))
+            {
+                return null;
+            }
+
+            var title = string.Join(" ", prompt
+                .Split((char[])null, StringSplitOptions.RemoveEmptyEntries));
+            if (title.Length <= MaxAutomaticThreadTitleLength)
+            {
+                return title;
+            }
+
+            return title.Substring(0, MaxAutomaticThreadTitleLength - 3).TrimEnd() + "...";
         }
 
         private void AssignTurnToPendingUserMessage(string turnId)

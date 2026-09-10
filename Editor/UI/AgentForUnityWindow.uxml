@@ -37,7 +37,7 @@
             <ui:VisualElement class="afu-chat-pane">
                 <ui:VisualElement class="afu-thread-bar">
                     <ui:Label text="Thread" class="afu-field-caption" />
-                    <ui:Label name="thread-value" text="Not started" class="afu-thread-value" />
+                    <ui:Label name="thread-value" text="New conversation" class="afu-thread-value" />
                     <ui:Label name="turn-activity-indicator" class="afu-turn-activity" />
                     <ui:Label name="turn-state" text="Idle" class="afu-turn-state" />
                     <ui:Button name="request-compile-button" text="Compile Unity" tooltip="Request Unity script compilation for this completed conversation" class="afu-request-compile" />
@@ -48,13 +48,6 @@
                         <ui:VisualElement name="messages-delivery-list" class="afu-messages__delivery-list" />
                     </ui:VisualElement>
                 </ui:ScrollView>
-
-                <ui:VisualElement name="chat-reasoning-panel" class="afu-chat-reasoning">
-                    <ui:VisualElement class="afu-chat-reasoning__header">
-                        <ui:Label name="chat-reasoning-title" text="Reasoning summary" class="afu-chat-reasoning__title" />
-                    </ui:VisualElement>
-                    <ui:Label name="chat-reasoning-body" class="afu-chat-reasoning__body" />
-                </ui:VisualElement>
 
                 <ui:VisualElement name="chat-approval-alert" class="afu-chat-approval-alert">
                     <ui:VisualElement class="afu-chat-approval-alert__text">

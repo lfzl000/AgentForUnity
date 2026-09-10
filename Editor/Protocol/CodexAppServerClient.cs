@@ -8,7 +8,7 @@ namespace AgentForUnity.Editor.Codex
     internal sealed class CodexAppServerClient : IDisposable
     {
         private const int RequestTimeoutMilliseconds = 20000;
-        private const int MaximumProtocolLineLength = 4 * 1024 * 1024;
+        private const int MaximumProtocolLineLength = 16 * 1024 * 1024;
 
         private sealed class PendingRequest
         {
@@ -154,7 +154,7 @@ namespace AgentForUnity.Editor.Codex
         {
             if (line.Length > MaximumProtocolLineLength)
             {
-                DiagnosticReceived?.Invoke("Ignored an App Server message larger than 4 MiB.");
+                DiagnosticReceived?.Invoke("Ignored an App Server message larger than 16 MiB.");
                 return;
             }
 

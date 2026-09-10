@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.IO;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -148,7 +149,14 @@ namespace AgentForUnity.Editor.Codex
             JObject root;
             try
             {
-                root = JObject.Parse(json);
+                using (var reader = new JsonTextReader(new StringReader(json))
+                {
+                    // Cursors are opaque strings. Do not turn ISO timestamps into locale-formatted dates.
+                    DateParseHandling = DateParseHandling.None
+                })
+                {
+                    root = JObject.Load(reader);
+                }
             }
             catch (JsonException exception)
             {

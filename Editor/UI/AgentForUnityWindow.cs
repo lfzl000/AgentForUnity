@@ -16,7 +16,6 @@ namespace AgentForUnity.Editor.UI
         private const float CompactWidth = 690f;
         private const int MaxRenderedActivityItems = 12;
         private const int MaxRenderedActivityBodyCharacters = 512;
-        private const int MaxRenderedReasoningCharacters = 6000;
         private const int MaxPreviewImageBytes = 25 * 1024 * 1024;
         private static readonly string[] TurnActivityFrames = { "|", "/", "-", "\\" };
 
@@ -53,9 +52,6 @@ namespace AgentForUnity.Editor.UI
         private ScrollView _detailsScroll;
         private VisualElement _messagesList;
         private VisualElement _messagesDeliveryList;
-        private VisualElement _chatReasoningCard;
-        private Label _chatReasoningTitle;
-        private Label _chatReasoningBody;
         private VisualElement _diagnosticsList;
         private VisualElement _contextsList;
         private VisualElement _approvalsList;
@@ -105,7 +101,6 @@ namespace AgentForUnity.Editor.UI
         private string _lastApprovalSignature;
         private string _lastCompilationSignature;
         private string _lastDiff;
-        private string _lastChatReasoningSignature;
         private string _lastMessagePresentationSignature;
         private string _lastThreadSignature;
         private string _lastRenderedThreadId;
@@ -154,15 +149,11 @@ namespace AgentForUnity.Editor.UI
             _lastDiagnosticsVersion = -1;
             _lastMessageCount = 0;
             _lastMessageTextLength = 0;
-            _chatReasoningCard = null;
-            _chatReasoningTitle = null;
-            _chatReasoningBody = null;
             _layoutInitialized = false;
             _lastContextSignature = null;
             _lastApprovalSignature = null;
             _lastCompilationSignature = null;
             _lastDiff = null;
-            _lastChatReasoningSignature = null;
             _lastMessagePresentationSignature = null;
             _lastThreadSignature = null;
             _lastRenderedThreadId = null;
@@ -225,9 +216,6 @@ namespace AgentForUnity.Editor.UI
             _detailsScroll = rootVisualElement.Q<ScrollView>("details-scroll");
             _messagesList = rootVisualElement.Q<VisualElement>("messages-list");
             _messagesDeliveryList = rootVisualElement.Q<VisualElement>("messages-delivery-list");
-            _chatReasoningCard = rootVisualElement.Q<VisualElement>("chat-reasoning-panel");
-            _chatReasoningTitle = rootVisualElement.Q<Label>("chat-reasoning-title");
-            _chatReasoningBody = rootVisualElement.Q<Label>("chat-reasoning-body");
             _diagnosticsList = rootVisualElement.Q<VisualElement>("diagnostics-list");
             _contextsList = rootVisualElement.Q<VisualElement>("contexts-list");
             _approvalsList = rootVisualElement.Q<VisualElement>("approvals-list");
@@ -289,9 +277,6 @@ namespace AgentForUnity.Editor.UI
                    && _detailsScroll != null
                    && _messagesList != null
                    && _messagesDeliveryList != null
-                   && _chatReasoningCard != null
-                   && _chatReasoningTitle != null
-                   && _chatReasoningBody != null
                    && _diagnosticsList != null
                    && _contextsList != null
                    && _approvalsList != null
@@ -399,7 +384,10 @@ namespace AgentForUnity.Editor.UI
                     ? DisplayStyle.Flex
                     : DisplayStyle.None;
 
-                SetLabelValue(_threadValue, _service.ThreadId, "Not started");
+                SetLabelValue(_threadValue, _service.CurrentThreadTitle, "New conversation");
+                _threadValue.tooltip = string.IsNullOrEmpty(_service.ThreadId)
+                    ? null
+                    : "Thread ID: " + _service.ThreadId;
                 SetLabelValue(_cliPathValue, _service.CliPath, "Not found");
                 SetLabelValue(_cliVersionValue, _service.CliVersion, "Unknown");
                 SetLabelValue(_accountValue, _service.AccountLabel, "Unknown");
@@ -414,7 +402,9 @@ namespace AgentForUnity.Editor.UI
                     _service.ThreadId,
                     _service.ThreadsLoading,
                     _service.CanSwitchThread,
-                    _service.IsTurnStarting);
+                    _service.IsTurnStarting,
+                    _service.HasMoreThreads,
+                    _service.CanLoadMoreThreads);
                 if (!string.Equals(_lastRenderedThreadId, _service.ThreadId, StringComparison.Ordinal))
                 {
                     _lastRenderedThreadId = _service.ThreadId;
@@ -427,7 +417,6 @@ namespace AgentForUnity.Editor.UI
                     _service.TurnState == AgentTurnState.Completed,
                     _service.LastTurnDuration);
                 RefreshContexts(_service.Contexts);
-                RefreshActivities(_service.Activities);
                 RefreshApprovals(_service.Approvals);
                 RefreshCompilation(_service.Compilation);
                 RefreshDiff(_service.LastDiff);
@@ -445,7 +434,9 @@ namespace AgentForUnity.Editor.UI
             string selectedThreadId,
             bool isLoading,
             bool canSwitch,
-            bool hasActiveTurn)
+            bool hasActiveTurn,
+            bool hasMore,
+            bool canLoadMore)
         {
             var signatureParts = threads == null
                 ? new List<string>()
@@ -461,7 +452,9 @@ namespace AgentForUnity.Editor.UI
                             "#" + selectedThreadId +
                             "#" + isLoading +
                             "#" + canSwitch +
-                            "#" + hasActiveTurn;
+                            "#" + hasActiveTurn +
+                            "#" + hasMore +
+                            "#" + canLoadMore;
             if (string.Equals(signature, _lastThreadSignature, StringComparison.Ordinal))
             {
                 return;
@@ -513,6 +506,18 @@ namespace AgentForUnity.Editor.UI
                 meta.AddToClassList("afu-conversation__meta");
                 button.Add(meta);
                 _conversationsList.Add(button);
+            }
+
+            if (hasMore)
+            {
+                var loadMore = new Button(_service.LoadMoreThreads)
+                {
+                    text = isLoading ? "Loading..." : "Load more"
+                };
+                loadMore.tooltip = "Load 20 more conversations";
+                loadMore.AddToClassList("afu-conversations-load-more");
+                loadMore.SetEnabled(canLoadMore);
+                _conversationsList.Add(loadMore);
             }
         }
 
@@ -1143,45 +1148,6 @@ namespace AgentForUnity.Editor.UI
                     : activity.Title + ": " + body;
         }
 
-        private void RefreshChatReasoning(IReadOnlyList<AgentActivityItem> activities)
-        {
-            if (_chatReasoningCard == null || _chatReasoningTitle == null || _chatReasoningBody == null)
-            {
-                return;
-            }
-
-            var reasoning = activities?.LastOrDefault(item =>
-                item != null &&
-                item.Kind == AgentActivityKind.Reasoning &&
-                !string.IsNullOrWhiteSpace(item.Body));
-            var signature = reasoning == null
-                ? string.Empty
-                : reasoning.Id + ":" + reasoning.IsStreaming + ":" + reasoning.Body.Length + ":" + reasoning.Body.GetHashCode();
-            if (string.Equals(signature, _lastChatReasoningSignature, StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            _lastChatReasoningSignature = signature;
-            if (reasoning == null)
-            {
-                _chatReasoningCard.style.display = DisplayStyle.None;
-                _chatReasoningBody.text = string.Empty;
-                return;
-            }
-
-            _chatReasoningTitle.text = reasoning.IsStreaming
-                ? "Reasoning summary · Thinking"
-                : "Reasoning summary";
-            _chatReasoningBody.text = TruncateForDisplay(reasoning.Body, MaxRenderedReasoningCharacters);
-            _chatReasoningCard.style.display = DisplayStyle.Flex;
-        }
-
-        private void RefreshActivities(IReadOnlyList<AgentActivityItem> activities)
-        {
-            RefreshChatReasoning(activities);
-        }
-
         private static string TruncateForDisplay(string value, int maximumCharacters)
         {
             var text = value ?? string.Empty;
@@ -1478,6 +1444,13 @@ namespace AgentForUnity.Editor.UI
         private void OpenProjectLink(string target)
         {
             var value = (target ?? string.Empty).Trim();
+            // Markdown permits angle brackets around link destinations. Keep that
+            // syntax out of the filesystem path passed to Unity's file opener.
+            if (value.Length >= 2 && value[0] == '<' && value[value.Length - 1] == '>')
+            {
+                value = value.Substring(1, value.Length - 2).Trim();
+            }
+
             if (value.Length == 0)
             {
                 return;
@@ -1932,7 +1905,7 @@ namespace AgentForUnity.Editor.UI
             var chatPane = Element(null, "afu-chat-pane");
             var threadBar = Element(null, "afu-thread-bar");
             threadBar.Add(Label(null, "Thread", "afu-field-caption"));
-            threadBar.Add(Label("thread-value", "Not started", "afu-thread-value"));
+            threadBar.Add(Label("thread-value", "New conversation", "afu-thread-value"));
             threadBar.Add(Label("turn-activity-indicator", string.Empty, "afu-turn-activity"));
             threadBar.Add(Label("turn-state", "Idle", "afu-turn-state"));
             var requestCompile = Button(
@@ -1949,13 +1922,6 @@ namespace AgentForUnity.Editor.UI
             messagesList.Add(Element("messages-delivery-list", "afu-messages__delivery-list"));
             messageScroll.Add(messagesList);
             chatPane.Add(messageScroll);
-
-            var chatReasoning = Element("chat-reasoning-panel", "afu-chat-reasoning");
-            var chatReasoningHeader = Element(null, "afu-chat-reasoning__header");
-            chatReasoningHeader.Add(Label("chat-reasoning-title", "Reasoning summary", "afu-chat-reasoning__title"));
-            chatReasoning.Add(chatReasoningHeader);
-            chatReasoning.Add(Label("chat-reasoning-body", string.Empty, "afu-chat-reasoning__body"));
-            chatPane.Add(chatReasoning);
 
             var chatApprovalAlert = Element("chat-approval-alert", "afu-chat-approval-alert");
             var chatApprovalText = Element(null, "afu-chat-approval-alert__text");
