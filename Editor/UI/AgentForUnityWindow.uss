@@ -1123,6 +1123,123 @@
     margin-bottom: 5px;
 }
 
+.afu-tooling {
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom-width: 1px;
+    border-bottom-color: rgba(128, 128, 128, 0.22);
+}
+
+.afu-tooling__unity-version {
+    margin: 1px 2px 5px 2px;
+    font-size: 10px;
+    opacity: 0.58;
+}
+
+.afu-play-mode-settings {
+    margin-bottom: 7px;
+    padding: 7px;
+    border-width: 1px;
+    border-color: rgba(128, 128, 128, 0.22);
+    border-radius: 4px;
+    background-color: rgba(0, 0, 0, 0.04);
+}
+
+.afu-play-mode-settings Toggle {
+    min-height: 20px;
+    margin-top: 2px;
+    font-size: 10px;
+}
+
+.afu-play-mode-settings__scope {
+    margin-top: 2px;
+    margin-bottom: 3px;
+    white-space: normal;
+    font-size: 9px;
+    opacity: 0.56;
+}
+
+.afu-play-mode-settings__description {
+    min-width: 0;
+    margin-top: 5px;
+    padding-top: 5px;
+    white-space: normal;
+    border-top-width: 1px;
+    border-top-color: rgba(128, 128, 128, 0.18);
+    font-size: 9px;
+    opacity: 0.72;
+}
+
+.afu-tooling__row {
+    min-height: 45px;
+    margin-bottom: 4px;
+    padding: 6px;
+    flex-direction: row;
+    align-items: center;
+    border-width: 1px;
+    border-color: rgba(128, 128, 128, 0.22);
+    border-radius: 4px;
+    background-color: rgba(0, 0, 0, 0.04);
+}
+
+.afu-tooling__dot {
+    width: 7px;
+    min-width: 7px;
+    height: 7px;
+    margin-right: 7px;
+    border-radius: 4px;
+    background-color: rgb(142, 142, 147);
+}
+
+.afu-tooling__dot--ready {
+    background-color: rgb(52, 168, 83);
+}
+
+.afu-tooling__dot--working {
+    background-color: rgb(45, 132, 210);
+}
+
+.afu-tooling__dot--warning {
+    background-color: rgb(218, 153, 38);
+}
+
+.afu-tooling__body {
+    min-width: 0;
+    flex-grow: 1;
+    flex-shrink: 1;
+}
+
+.afu-tooling__caption {
+    font-size: 11px;
+    -unity-font-style: bold;
+}
+
+.afu-tooling__status {
+    min-width: 0;
+    margin-top: 2px;
+    white-space: normal;
+    font-size: 9px;
+    opacity: 0.65;
+}
+
+.afu-tooling__action {
+    width: 86px;
+    min-width: 86px;
+    min-height: 23px;
+    margin-left: 6px;
+    font-size: 10px;
+}
+
+.afu-tooling__refresh {
+    width: 26px;
+    min-width: 26px;
+    height: 22px;
+    min-height: 22px;
+    padding: 0;
+    margin: 1px 0 0 auto;
+    font-size: 14px;
+}
+
 .afu-detail-row {
     flex-direction: row;
     align-items: flex-start;

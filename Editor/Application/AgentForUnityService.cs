@@ -325,6 +325,12 @@ namespace AgentForUnity.Editor.Application
         internal bool HasMoreThreads => !string.IsNullOrEmpty(_nextThreadsCursor);
         internal bool CanLoadMoreThreads => CanRefreshThreads && HasMoreThreads;
 
+        internal static bool EnterPlayModeReloadsDomain()
+        {
+            return !EditorSettings.enterPlayModeOptionsEnabled ||
+                   (EditorSettings.enterPlayModeOptions & EnterPlayModeOptions.DisableDomainReload) == 0;
+        }
+
         internal AgentPermissionMode PermissionMode
         {
             get => _permissionMode;
@@ -383,6 +389,20 @@ namespace AgentForUnity.Editor.Application
 
             _started = true;
             ConnectInternal(true);
+        }
+
+        internal void HandlePlayModeEntryBlocked()
+        {
+            if (_disposed || !IsTurnStarting)
+            {
+                return;
+            }
+
+            StatusText = "Play Mode blocked - Domain Reload would interrupt the conversation";
+            AddDiagnostic(
+                "Cancelled Play Mode entry because Domain Reload would interrupt the active conversation. " +
+                "Enter Play Mode again after the turn finishes.");
+            MarkChanged();
         }
 
         internal void Reconnect()
@@ -607,7 +627,10 @@ namespace AgentForUnity.Editor.Application
                 var parameters = new JObject
                 {
                     ["threadId"] = _threadId,
-                    ["input"] = BuildTurnInput(prompt, submittedContexts),
+                    ["input"] = BuildTurnInput(
+                        prompt,
+                        submittedContexts,
+                        EnterPlayModeReloadsDomain()),
                     ["cwd"] = _projectRoot,
                     ["approvalPolicy"] = AgentPermissionPolicy.GetApprovalPolicy(_permissionMode),
                     ["approvalsReviewer"] = AgentPermissionPolicy.GetApprovalsReviewer(_permissionMode),
@@ -750,6 +773,7 @@ namespace AgentForUnity.Editor.Application
                 return;
             }
 
+            UpdateUnityToolingSetup();
             _client?.Pump(128);
             if (!string.IsNullOrEmpty(_pendingDisconnect))
             {

@@ -7,6 +7,9 @@ Release `0.3.0` implements the M1 core workflow plus conversation and message-pr
 The core workflow provides:
 
 - locate and start the local Codex CLI app server;
+- detect and install the Unity CLI beta channel;
+- install `com.unity.pipeline` with Unity 2022.3 source adaptation when required;
+- install Pipeline skills and the project Unity guide after Pipeline setup;
 - initialize the protocol and read account state;
 - load the account's available models and reasoning efforts;
 - start or recover a project-scoped workspace-write thread;
@@ -18,7 +21,7 @@ The core workflow provides:
 - choose a persistent Ask Approval, Codex Decides, or Full Access permission mode;
 - inspect the current turn's aggregated Diff and open changed files;
 - track Unity compilation and continue compiler-error repair in the same thread;
-- recover context, Diff, compile state, and the current thread after Domain Reload;
+- restore persisted context, Diff, compile state, and the selected thread after Domain Reload;
 - steer or interrupt the active turn.
 
 ## Requirements
@@ -43,6 +46,8 @@ After installation, open **Window > Agent for Unity**. The package version shoul
 
 The package depends on `com.unity.nuget.newtonsoft-json` `3.2.1`.
 
+The **Unity Tooling** panel reports Unity CLI, Pipeline package, and authenticated Pipeline Server reachability status. **Install Pipeline** is the one-click setup path on Unity 2022.3 and Unity 6 or newer: it installs Unity CLI first when missing, installs the Pipeline package, applies the source compatibility patch on Unity 2022.3, and then installs the package's `unity-pipeline` skill under `.agents/skills`. Unity 2022.3 projects also receive the `unity-pipeline-2022` compatibility skill. The setup preserves an existing `UNITY-GUIDE.md` and adds the required guide instruction to `AGENTS.md` only when it is missing.
+
 ## Use The Window
 
 In Unity, choose **Window > Agent for Unity**. The window reports the detected CLI, account, project root, current thread, connection state, and diagnostics. The **Conversations** pane lists non-archived threads whose working directory is the current Unity project; use **New Thread**, refresh, or select a thread to continue it. A thread that is already active in another Codex client opens read-only.
@@ -57,9 +62,11 @@ When Codex requests additional filesystem or network access during a turn, Agent
 
 The details pane contains approval requests, compilation feedback, the current turn Diff, connection metadata, and diagnostics. Changed-file links in Markdown and the Diff open project-relative files. After a completed turn with a recorded file Diff, the package requests Unity script compilation. The resulting status is compilation feedback only and must not be treated as Play Mode or visual validation. If Unity does not start compiling, select **Compile Unity**; when compilation fails, **Continue Fix** sends the captured error summary to the same thread.
 
+An active conversation keeps Unity's assembly reload locked so its App Server process remains connected. When **Reload Domain** is enabled, Agent for Unity blocks entering Play Mode during an active conversation because the reload would terminate that turn. To allow automated Play Mode checks during a conversation, enable **Enter Play Mode Options**, disable **Reload Domain**, and keep **Reload Scene** enabled.
+
 ## Permission Modes
 
-- **Ask Approval**: uses Codex's `untrusted` approval policy with a writable sandbox limited to the Unity project.
+- **Ask Approval**: uses Codex's `on-request` approval policy with a user reviewer and a writable sandbox limited to the Unity project.
 - **Codex Decides**: uses `on-request` approval with that project-scoped writable sandbox and network access disabled by default.
 - **Full Access**: uses `never` approval with Codex's `danger-full-access` sandbox. This mode is unrestricted.
 

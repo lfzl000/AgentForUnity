@@ -56,6 +56,17 @@ namespace AgentForUnity.Editor.UI
         private VisualElement _diffFilesList;
         private Label _projectChangesSummary;
         private Foldout _diffFoldout;
+        private VisualElement _unityCliStatusDot;
+        private VisualElement _pipelineStatusDot;
+        private VisualElement _pipelineServerStatusDot;
+        private Label _unityVersionValue;
+        private Label _unityCliStatus;
+        private Label _pipelineStatus;
+        private Label _pipelineServerStatus;
+        private Label _playModeSettingsDescription;
+        private Toggle _enterPlayModeOptionsToggle;
+        private Toggle _reloadDomainToggle;
+        private Toggle _reloadSceneToggle;
         private TextField _promptField;
         private Button _reconnectButton;
         private Button _disconnectButton;
@@ -74,6 +85,9 @@ namespace AgentForUnity.Editor.UI
         private Button _chatAllowSessionButton;
         private Button _chatDeclineButton;
         private Button _chatCancelTurnButton;
+        private Button _installUnityCliButton;
+        private Button _installPipelineButton;
+        private Button _refreshToolingButton;
         private bool _isRefreshing;
         private int _lastMessageCount;
         private int _lastMessageTextLength;
@@ -105,6 +119,7 @@ namespace AgentForUnity.Editor.UI
             _service.Changed -= OnServiceChanged;
             _service.Changed += OnServiceChanged;
             _service.EnsureStarted();
+            _service.RefreshUnityTooling();
         }
 
         private void OnDisable()
@@ -114,6 +129,14 @@ namespace AgentForUnity.Editor.UI
             if (_service != null)
             {
                 _service.Changed -= OnServiceChanged;
+            }
+        }
+
+        private void OnFocus()
+        {
+            if (_playModeSettingsDescription != null)
+            {
+                RefreshPlayModeSettings();
             }
         }
 
@@ -199,6 +222,17 @@ namespace AgentForUnity.Editor.UI
             _diffFilesList = rootVisualElement.Q<VisualElement>("diff-files-list");
             _projectChangesSummary = rootVisualElement.Q<Label>("project-changes-summary");
             _diffFoldout = rootVisualElement.Q<Foldout>("diff-foldout");
+            _unityCliStatusDot = rootVisualElement.Q<VisualElement>("unity-cli-status-dot");
+            _pipelineStatusDot = rootVisualElement.Q<VisualElement>("pipeline-status-dot");
+            _pipelineServerStatusDot = rootVisualElement.Q<VisualElement>("pipeline-server-status-dot");
+            _unityVersionValue = rootVisualElement.Q<Label>("unity-version-value");
+            _unityCliStatus = rootVisualElement.Q<Label>("unity-cli-status");
+            _pipelineStatus = rootVisualElement.Q<Label>("pipeline-status");
+            _pipelineServerStatus = rootVisualElement.Q<Label>("pipeline-server-status");
+            _playModeSettingsDescription = rootVisualElement.Q<Label>("play-mode-settings-description");
+            _enterPlayModeOptionsToggle = rootVisualElement.Q<Toggle>("enter-play-mode-options-toggle");
+            _reloadDomainToggle = rootVisualElement.Q<Toggle>("reload-domain-toggle");
+            _reloadSceneToggle = rootVisualElement.Q<Toggle>("reload-scene-toggle");
             _promptField = rootVisualElement.Q<TextField>("prompt-field");
             _reconnectButton = rootVisualElement.Q<Button>("reconnect-button");
             _disconnectButton = rootVisualElement.Q<Button>("disconnect-button");
@@ -217,6 +251,9 @@ namespace AgentForUnity.Editor.UI
             _chatAllowSessionButton = rootVisualElement.Q<Button>("chat-allow-session-button");
             _chatDeclineButton = rootVisualElement.Q<Button>("chat-decline-button");
             _chatCancelTurnButton = rootVisualElement.Q<Button>("chat-cancel-turn-button");
+            _installUnityCliButton = rootVisualElement.Q<Button>("install-unity-cli-button");
+            _installPipelineButton = rootVisualElement.Q<Button>("install-pipeline-button");
+            _refreshToolingButton = rootVisualElement.Q<Button>("refresh-tooling-button");
 
             return _windowRoot != null
                    && _statusDot != null
@@ -248,6 +285,17 @@ namespace AgentForUnity.Editor.UI
                    && _diffFilesList != null
                    && _projectChangesSummary != null
                    && _diffFoldout != null
+                   && _unityCliStatusDot != null
+                   && _pipelineStatusDot != null
+                   && _pipelineServerStatusDot != null
+                   && _unityVersionValue != null
+                   && _unityCliStatus != null
+                   && _pipelineStatus != null
+                   && _pipelineServerStatus != null
+                   && _playModeSettingsDescription != null
+                   && _enterPlayModeOptionsToggle != null
+                   && _reloadDomainToggle != null
+                   && _reloadSceneToggle != null
                    && _promptField != null
                    && _reconnectButton != null
                    && _disconnectButton != null
@@ -265,7 +313,10 @@ namespace AgentForUnity.Editor.UI
                    && _chatAllowOnceButton != null
                    && _chatAllowSessionButton != null
                    && _chatDeclineButton != null
-                   && _chatCancelTurnButton != null;
+                   && _chatCancelTurnButton != null
+                   && _installUnityCliButton != null
+                   && _installPipelineButton != null
+                   && _refreshToolingButton != null;
         }
 
         private void RegisterUiCallbacks()
@@ -305,6 +356,12 @@ namespace AgentForUnity.Editor.UI
             _chatAllowSessionButton.clicked += () => ResolveActiveChatApproval("acceptForSession");
             _chatDeclineButton.clicked += () => ResolveActiveChatApproval("decline");
             _chatCancelTurnButton.clicked += () => ResolveActiveChatApproval("cancel");
+            _installUnityCliButton.clicked += () => _service.InstallUnityCli();
+            _installPipelineButton.clicked += () => _service.InstallPipeline();
+            _refreshToolingButton.clicked += () => _service.RefreshUnityTooling();
+            _enterPlayModeOptionsToggle.RegisterValueChangedCallback(OnEnterPlayModeOptionsChanged);
+            _reloadDomainToggle.RegisterValueChangedCallback(OnReloadDomainChanged);
+            _reloadSceneToggle.RegisterValueChangedCallback(OnReloadSceneChanged);
             _modelField.RegisterValueChangedCallback(OnModelChanged);
             _reasoningField.RegisterValueChangedCallback(OnReasoningChanged);
             _permissionField.RegisterValueChangedCallback(OnPermissionChanged);
@@ -363,6 +420,7 @@ namespace AgentForUnity.Editor.UI
                 SetLabelValue(_accountUsageValue, LocalizeAccountUsage(_service.AccountUsageLabel), T("Unavailable", "不可用"));
                 SetLabelValue(_projectValue, ShortProjectName(_service.ProjectRoot), T("Unavailable", "不可用"));
                 _projectValue.tooltip = _service.ProjectRoot;
+                RefreshUnityToolingStatus();
 
                 RefreshConnectionTone(connectionState);
                 RefreshModels(_service.Models, _service.SelectedModelId);
@@ -1327,18 +1385,29 @@ namespace AgentForUnity.Editor.UI
             var normalized = (path ?? string.Empty).Replace('\\', '/');
             if (Path.IsPathRooted(normalized))
             {
-                if (File.Exists(normalized))
+                if (!TryGetProjectAssetPath(normalized, out var assetPath))
                 {
-                    UnityEditorInternal.InternalEditorUtility.OpenFileAtLineExternal(normalized, line);
+                    if (File.Exists(normalized))
+                    {
+                        UnityEditorInternal.InternalEditorUtility.OpenFileAtLineExternal(normalized, line);
+                    }
+
+                    return;
                 }
 
-                return;
+                normalized = assetPath;
             }
 
             var asset = AssetDatabase.LoadMainAssetAtPath(normalized);
             if (asset != null)
             {
                 EditorGUIUtility.PingObject(asset);
+                if (normalized.EndsWith(".unity", StringComparison.OrdinalIgnoreCase))
+                {
+                    Selection.activeObject = asset;
+                    return;
+                }
+
                 AssetDatabase.OpenAsset(asset, line);
                 return;
             }
@@ -1347,6 +1416,35 @@ namespace AgentForUnity.Editor.UI
             if (File.Exists(absolute))
             {
                 UnityEditorInternal.InternalEditorUtility.OpenFileAtLineExternal(absolute, line);
+            }
+        }
+
+        private bool TryGetProjectAssetPath(string absolutePath, out string assetPath)
+        {
+            assetPath = null;
+            try
+            {
+                var projectRoot = Path.GetFullPath(_service.ProjectRoot).Replace('\\', '/').TrimEnd('/');
+                var fullPath = Path.GetFullPath(absolutePath).Replace('\\', '/');
+                var projectPrefix = projectRoot + "/";
+                if (!fullPath.StartsWith(projectPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                var relativePath = fullPath.Substring(projectPrefix.Length);
+                if (!relativePath.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase) &&
+                    !relativePath.StartsWith("Packages/", StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                assetPath = relativePath;
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
             }
         }
 
@@ -1453,6 +1551,150 @@ namespace AgentForUnity.Editor.UI
             _disconnectButton.SetEnabled(_service.CanDisconnect);
             _newThreadButton.SetEnabled(_service.CanStartThread);
             _refreshThreadsButton.SetEnabled(_service.CanRefreshThreads);
+            _installUnityCliButton.SetEnabled(_service.CanInstallUnityCli);
+            _installPipelineButton.SetEnabled(_service.CanInstallPipeline);
+            _refreshToolingButton.SetEnabled(!_service.UnityToolingBusy);
+
+            _installUnityCliButton.text = _service.UnityToolingBusy && !_service.UnityCliInstalled
+                ? T("Working...", "处理中…")
+                : _service.UnityCliInstalled ? T("Installed", "已安装") : T("Install", "安装");
+            _installPipelineButton.text = _service.UnityToolingBusy && !_service.PipelineProjectSetupComplete
+                ? T("Working...", "处理中…")
+                : !_service.PipelineUnityVersionSupported
+                    ? T("Unsupported", "不支持")
+                    : !_service.PipelineInstalled
+                        ? T("Install", "安装")
+                        : _service.PipelineProjectSetupComplete
+                            ? T("Installed", "已安装")
+                            : _service.PipelineRequiresUnity2022Adaptation
+                                ? T("Adapt", "适配")
+                                : T("Finish Setup", "完成配置");
+        }
+
+        private void RefreshUnityToolingStatus()
+        {
+            _unityVersionValue.text = T("Unity ", "Unity ") + UnityEngine.Application.unityVersion;
+            RefreshPlayModeSettings();
+            _unityCliStatus.text = LocalizeToolingStatus(_service.UnityCliStatus);
+            _unityCliStatus.tooltip = string.IsNullOrEmpty(_service.UnityCliToolPath)
+                ? _unityCliStatus.text
+                : _service.UnityCliToolPath;
+            _pipelineStatus.text = LocalizeToolingStatus(_service.PipelineStatus);
+            _pipelineStatus.tooltip = _pipelineStatus.text;
+            _pipelineServerStatus.text = LocalizeToolingStatus(_service.PipelineServerStatus);
+            _pipelineServerStatus.tooltip = string.IsNullOrEmpty(_service.PipelineServerEndpoint)
+                ? _pipelineServerStatus.text
+                : _service.PipelineServerEndpoint;
+            RefreshToolingTone(_unityCliStatusDot, _service.UnityCliInstalled, _service.UnityToolingBusy);
+            RefreshToolingTone(_pipelineStatusDot, _service.PipelineProjectSetupComplete, _service.UnityToolingBusy);
+            RefreshToolingTone(
+                _pipelineServerStatusDot,
+                _service.PipelineServerReachable,
+                _service.PipelineServerChecking);
+        }
+
+        private void RefreshPlayModeSettings()
+        {
+            var optionsEnabled = EditorSettings.enterPlayModeOptionsEnabled;
+            var options = EditorSettings.enterPlayModeOptions;
+            var reloadDomain = !optionsEnabled ||
+                               (options & EnterPlayModeOptions.DisableDomainReload) == 0;
+
+            _enterPlayModeOptionsToggle.SetValueWithoutNotify(optionsEnabled);
+            _reloadDomainToggle.SetValueWithoutNotify(reloadDomain);
+            _reloadSceneToggle.SetValueWithoutNotify(
+                !optionsEnabled || (options & EnterPlayModeOptions.DisableSceneReload) == 0);
+            _reloadDomainToggle.SetEnabled(optionsEnabled);
+            _reloadSceneToggle.SetEnabled(optionsEnabled);
+
+            if (reloadDomain)
+            {
+                _playModeSettingsDescription.text = T(
+                    "Agent for Unity cannot enter Play Mode during a conversation while Reload Domain is enabled. To allow automated checks, enable Enter Play Mode Options, disable Reload Domain, and enable Reload Scene.",
+                    "Reload Domain 开启时，Agent for Unity 无法在对话中进入 Play Mode。要允许自动检查：勾选 Enter Play Mode Options，不勾选 Reload Domain，勾选 Reload Scene。");
+            }
+            else
+            {
+                _playModeSettingsDescription.text = T(
+                    "Agent for Unity remains connected in Play Mode and can run automated checks during the conversation. Recommended: Enter Play Mode Options enabled, Reload Domain disabled, Reload Scene enabled.",
+                    "Agent for Unity 可在 Play Mode 中保持对话并自动运行检查。推荐设置：勾选 Enter Play Mode Options，不勾选 Reload Domain，勾选 Reload Scene。");
+            }
+        }
+
+        private void OnEnterPlayModeOptionsChanged(ChangeEvent<bool> change)
+        {
+            if (_isRefreshing)
+            {
+                return;
+            }
+
+            EditorSettings.enterPlayModeOptionsEnabled = change.newValue;
+            RefreshPlayModeSettings();
+        }
+
+        private void OnReloadDomainChanged(ChangeEvent<bool> change)
+        {
+            SetEnterPlayModeOption(EnterPlayModeOptions.DisableDomainReload, !change.newValue);
+        }
+
+        private void OnReloadSceneChanged(ChangeEvent<bool> change)
+        {
+            SetEnterPlayModeOption(EnterPlayModeOptions.DisableSceneReload, !change.newValue);
+        }
+
+        private void SetEnterPlayModeOption(EnterPlayModeOptions option, bool disabled)
+        {
+            if (_isRefreshing)
+            {
+                return;
+            }
+
+            var options = EditorSettings.enterPlayModeOptions;
+            EditorSettings.enterPlayModeOptions = disabled ? options | option : options & ~option;
+            RefreshPlayModeSettings();
+        }
+
+        private static void RefreshToolingTone(VisualElement dot, bool ready, bool working)
+        {
+            dot.EnableInClassList("afu-tooling__dot--ready", ready);
+            dot.EnableInClassList("afu-tooling__dot--working", working && !ready);
+            dot.EnableInClassList("afu-tooling__dot--warning", !ready && !working);
+        }
+
+        private static string LocalizeToolingStatus(string value)
+        {
+            if (!IsChinese || string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+
+            return value
+                .Replace("Not checked", "未检查")
+                .Replace("Not installed", "未安装")
+                .Replace("Installed", "已安装")
+                .Replace("Installing Unity CLI", "正在安装 Unity CLI")
+                .Replace("Detecting Unity CLI", "正在检测 Unity CLI")
+                .Replace("Checking Pipeline package", "正在检查 Pipeline 包")
+                .Replace("Preparing Pipeline installation", "正在准备 Pipeline 安装")
+                .Replace("Installing Unity 2022 compatible source", "正在安装 Unity 2022 兼容源码")
+                .Replace("Installing with Unity CLI", "正在通过 Unity CLI 安装")
+                .Replace("Waiting for Unity to resolve the package", "正在等待 Unity 解析包")
+                .Replace("Finishing project setup", "正在完成工程配置")
+                .Replace("Project setup incomplete", "工程配置未完成")
+                .Replace("Unity 2022 adaptation required", "需要 Unity 2022 适配")
+                .Replace("Skills ready", "技能已就绪")
+                .Replace("Installation failed", "安装失败")
+                .Replace("Detection failed", "检测失败")
+                .Replace("Project setup failed", "工程配置失败")
+                .Replace("Unsupported Unity version", "不支持此 Unity 版本")
+                .Replace("Checking connection", "正在检查连接")
+                .Replace("Reachable", "可连接")
+                .Replace("Unreachable", "不可连接")
+                .Replace("Instance descriptor missing", "缺少实例描述文件")
+                .Replace("Invalid instance descriptor", "实例描述文件无效")
+                .Replace("Authentication failed", "鉴权失败")
+                .Replace("Unavailable", "不可用")
+                .Replace("Unity CLI was not found.", "未找到 Unity CLI。");
         }
 
         private void SendPrompt()
@@ -1614,6 +1856,23 @@ namespace AgentForUnity.Editor.UI
             SetText("conversations-caption", "Conversations", "对话");
             SetText("remaining-caption", "Remaining", "剩余");
             SetText("thread-caption", "Thread", "对话");
+            var toolingFoldout = rootVisualElement.Q<Foldout>("tooling-foldout");
+            if (toolingFoldout != null)
+            {
+                toolingFoldout.text = T("Unity Tooling", "Unity 工具");
+            }
+            SetText("unity-cli-caption", "Unity CLI", "Unity CLI");
+            SetText("pipeline-caption", "Pipeline", "Pipeline");
+            SetText("pipeline-server-caption", "Pipeline Server", "Pipeline 服务");
+            SetText("play-mode-settings-caption", "Enter Play Mode", "进入 Play Mode");
+            SetText(
+                "play-mode-settings-scope",
+                "Impact on Agent for Unity",
+                "对 Agent for Unity 的影响");
+            _enterPlayModeOptionsToggle.label = T("Enter Play Mode Options", "启用 Enter Play Mode Options");
+            _reloadDomainToggle.label = T("Reload Domain", "重新加载 Domain");
+            _reloadSceneToggle.label = T("Reload Scene", "重新加载 Scene");
+            SetText("refresh-tooling-button", "↻", "↻", "Refresh Unity CLI, Pipeline, and server status", "刷新 Unity CLI、Pipeline 与服务状态");
             SetText("reconnect-button", "Reconnect", "重新连接", "Restart connection detection", "重新检测连接");
             SetText("disconnect-button", "Disconnect", "断开连接", "Stop the Codex App Server connection", "停止 Codex App Server 连接");
             SetText("new-thread-button", "New Thread", "新建对话", "Start a new project-scoped thread", "开始一个项目范围的新对话");
@@ -1749,6 +2008,8 @@ namespace AgentForUnity.Editor.UI
                 case "Interrupted": return "已中断";
                 case "Failed": return "失败";
                 case "Working": return "处理中";
+                case "Play Mode blocked - Domain Reload would interrupt the conversation":
+                    return "已阻止进入 Play Mode - Domain Reload 会中断对话";
                 case "Waiting for approval": return "等待审批";
                 case "Waiting for command approval": return "等待命令审批";
                 case "Waiting for file approval": return "等待文件审批";
@@ -2114,6 +2375,46 @@ namespace AgentForUnity.Editor.UI
 
             var detailsPane = new ScrollView { name = "details-scroll" };
             detailsPane.AddToClassList("afu-details-pane");
+            var toolingFoldout = new Foldout { name = "tooling-foldout", text = "Unity Tooling", value = true };
+            toolingFoldout.AddToClassList("afu-foldout");
+            toolingFoldout.AddToClassList("afu-tooling");
+            toolingFoldout.Add(Label("unity-version-value", string.Empty, "afu-tooling__unity-version"));
+            var playModeSettings = Element(null, "afu-play-mode-settings");
+            playModeSettings.Add(Label("play-mode-settings-caption", "Enter Play Mode", "afu-tooling__caption"));
+            playModeSettings.Add(Label(
+                "play-mode-settings-scope",
+                "Impact on Agent for Unity",
+                "afu-play-mode-settings__scope"));
+            playModeSettings.Add(new Toggle("Enter Play Mode Options") { name = "enter-play-mode-options-toggle" });
+            playModeSettings.Add(new Toggle("Reload Domain") { name = "reload-domain-toggle" });
+            playModeSettings.Add(new Toggle("Reload Scene") { name = "reload-scene-toggle" });
+            playModeSettings.Add(Label(
+                "play-mode-settings-description",
+                string.Empty,
+                "afu-play-mode-settings__description"));
+            toolingFoldout.Add(playModeSettings);
+            toolingFoldout.Add(CreateFallbackToolingRow(
+                "unity-cli-status-dot",
+                "unity-cli-caption",
+                "Unity CLI",
+                "unity-cli-status",
+                "install-unity-cli-button"));
+            toolingFoldout.Add(CreateFallbackToolingRow(
+                "pipeline-status-dot",
+                "pipeline-caption",
+                "Pipeline",
+                "pipeline-status",
+                "install-pipeline-button"));
+            toolingFoldout.Add(CreateFallbackToolingRow(
+                "pipeline-server-status-dot",
+                "pipeline-server-caption",
+                "Pipeline Server",
+                "pipeline-server-status",
+                null));
+            var refreshTooling = Button("refresh-tooling-button", "↻", "Refresh Unity CLI, Pipeline, and server status");
+            refreshTooling.AddToClassList("afu-tooling__refresh");
+            toolingFoldout.Add(refreshTooling);
+            detailsPane.Add(toolingFoldout);
             var diffFoldout = new Foldout { name = "diff-foldout", text = "Project Changes", value = true };
             diffFoldout.AddToClassList("afu-foldout");
             diffFoldout.Add(Label("project-changes-summary", string.Empty, "afu-project-changes-summary"));
@@ -2125,6 +2426,28 @@ namespace AgentForUnity.Editor.UI
             var diagnosticsButton = Button("diagnostics-button", "ⓘ", "Open Agent for Unity diagnostics");
             diagnosticsButton.AddToClassList("afu-diagnostics-launcher");
             windowRoot.Add(diagnosticsButton);
+        }
+
+        private static VisualElement CreateFallbackToolingRow(
+            string dotName,
+            string captionName,
+            string captionText,
+            string statusName,
+            string buttonName)
+        {
+            var row = Element(null, "afu-tooling__row");
+            row.Add(Element(dotName, "afu-tooling__dot"));
+            var body = Element(null, "afu-tooling__body");
+            body.Add(Label(captionName, captionText, "afu-tooling__caption"));
+            body.Add(Label(statusName, "Not checked", "afu-tooling__status"));
+            row.Add(body);
+            if (!string.IsNullOrEmpty(buttonName))
+            {
+                var button = Button(buttonName, "Install", "Install Unity tooling");
+                button.AddToClassList("afu-tooling__action");
+                row.Add(button);
+            }
+            return row;
         }
 
         private void ApplyEssentialFallbackStyles()

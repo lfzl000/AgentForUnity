@@ -4,10 +4,20 @@ All notable changes to Agent for Unity are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Prevented entering Play Mode from triggering Domain Reload while a conversation is active, avoiding termination of its App Server process and an unrecoverable in-flight turn.
+- Active turns now receive a stable-protocol Play Mode restriction when Reload Domain is enabled, so the final response explains why required runtime validation was skipped without requiring experimental App Server capabilities.
+- Fixed Unity 2022 Pipeline adaptation so its watchdog refreshes and recreates missing instance descriptors, keeping CLI discovery available while the server is healthy.
+- Installed Pipeline workflows now request approved local execution on their first localhost call instead of reporting an expected restricted-sandbox failure first.
+
 ### Added
 
+- Enter Play Mode settings, current reload behavior, and contextual guidance in the Unity Tooling panel.
 - Direct screenshot capture from the current Unity Game view.
 - Approval cards for App Server filesystem and network permission requests, with one-turn and session grant scopes.
+- Unity CLI detection and installation, plus one-click `com.unity.pipeline` setup with package and authenticated server reachability status.
+- Automatic Unity 2022.3 Pipeline source adaptation and project-scoped Pipeline skill/guide installation.
 
 ## [0.3.0] - 2026-09-09
 
