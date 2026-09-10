@@ -42,6 +42,41 @@ namespace AgentForUnity.Editor.Application
         Screenshot
     }
 
+    internal enum AgentProjectChangeType
+    {
+        Modified,
+        Added,
+        Deleted,
+        Renamed,
+        Copied,
+        Untracked,
+        Conflicted
+    }
+
+    internal sealed class AgentProjectChange
+    {
+        internal AgentProjectChange(string path, AgentProjectChangeType changeType)
+        {
+            Path = path ?? string.Empty;
+            ChangeType = changeType;
+        }
+
+        internal string Path { get; }
+        internal AgentProjectChangeType ChangeType { get; }
+    }
+
+    internal sealed class AgentProjectChangesSnapshot
+    {
+        internal AgentProjectChangesSnapshot(string branch, IReadOnlyList<AgentProjectChange> changes)
+        {
+            Branch = branch ?? string.Empty;
+            Changes = changes ?? Array.Empty<AgentProjectChange>();
+        }
+
+        internal string Branch { get; }
+        internal IReadOnlyList<AgentProjectChange> Changes { get; }
+    }
+
     internal sealed class AgentContextItem
     {
         internal AgentContextItem(
@@ -91,6 +126,7 @@ namespace AgentForUnity.Editor.Application
     {
         Command,
         FileChange,
+        Permission,
         UserInput
     }
 
@@ -118,6 +154,7 @@ namespace AgentForUnity.Editor.Application
         internal string Command { get; set; }
         internal string WorkingDirectory { get; set; }
         internal string Details { get; set; }
+        internal JObject RequestedPermissions { get; set; }
         internal IReadOnlyList<AgentUserQuestion> Questions { get; set; } = Array.Empty<AgentUserQuestion>();
         internal bool IsResolved { get; set; }
         internal bool IsResponding { get; set; }

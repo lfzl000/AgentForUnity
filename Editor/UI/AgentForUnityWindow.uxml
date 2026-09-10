@@ -55,7 +55,6 @@
                     <ui:Label name="thread-value" text="New conversation" class="afu-thread-value" />
                     <ui:Label name="turn-activity-indicator" class="afu-turn-activity" />
                     <ui:Label name="turn-state" text="Idle" class="afu-turn-state" />
-                    <ui:Button name="request-compile-button" text="Compile Unity" tooltip="Request Unity script compilation for this completed conversation" class="afu-request-compile" />
                 </ui:VisualElement>
 
                 <ui:ScrollView name="messages-scroll" class="afu-messages">
@@ -75,7 +74,6 @@
                         <ui:Button name="chat-decline-button" text="Decline" class="afu-chat-approval-action afu-chat-approval-action--decline" />
                         <ui:Button name="chat-cancel-turn-button" text="Cancel Turn" class="afu-chat-approval-action afu-chat-approval-action--cancel" />
                     </ui:VisualElement>
-                    <ui:Button name="review-approval-button" text="Answer Request" class="afu-chat-approval-alert__button" />
                 </ui:VisualElement>
 
                 <ui:VisualElement class="afu-composer">
@@ -85,7 +83,7 @@
                         <ui:Button name="add-file-button" text="+ File" />
                         <ui:Button name="add-scene-button" text="+ Scene" />
                         <ui:Button name="add-git-diff-button" text="+ Git Diff" />
-                        <ui:Button name="add-screenshot-button" text="+ Screenshot" tooltip="Attach an image from the clipboard (Cmd/Ctrl+V)" />
+                        <ui:Button name="add-screenshot-button" text="+ Screenshot" tooltip="Attach an image from the clipboard or Game view" />
                     </ui:VisualElement>
                     <ui:VisualElement name="contexts-list" class="afu-contexts-list" />
                     <ui:TextField name="prompt-field" multiline="true" class="afu-prompt" />
@@ -95,8 +93,8 @@
                             <ui:DropdownField name="reasoning-field" tooltip="Reasoning effort" class="afu-select afu-select--reasoning" />
                             <ui:DropdownField name="permission-field" tooltip="Choose how Codex requests approval for file, command, and network access" class="afu-select afu-select--permission" />
                         </ui:VisualElement>
-                        <ui:Label name="context-usage-label" class="afu-context-usage" />
                         <ui:VisualElement class="afu-composer__commands">
+                            <ui:Label name="context-usage-label" class="afu-context-usage" />
                             <ui:Button name="interrupt-button" text="Stop" tooltip="Interrupt the active turn" />
                             <ui:Button name="send-button" text="Send" tooltip="Send this prompt to the current thread" class="afu-primary-button" />
                         </ui:VisualElement>
@@ -105,25 +103,9 @@
             </ui:VisualElement>
 
             <ui:ScrollView name="details-scroll" class="afu-details-pane">
-                <ui:VisualElement name="approval-alert" class="afu-approval-alert">
-                    <ui:Label name="approval-alert-title" text="ACTION REQUIRED" class="afu-approval-alert__title" />
-                    <ui:Label name="approval-alert-message" text="Codex is waiting for permission before it can continue." class="afu-approval-alert__message" />
-                </ui:VisualElement>
-                <ui:Foldout name="approvals-foldout" text="Approvals" value="true" class="afu-foldout">
-                    <ui:ScrollView name="approvals-list" class="afu-card-list afu-card-list--approvals" />
-                </ui:Foldout>
-
-                <ui:Foldout name="compile-foldout" text="Unity Compile" value="true" class="afu-foldout">
-                    <ui:Label name="compile-summary" class="afu-detail-value" />
-                    <ui:ScrollView name="compile-details-scroll" class="afu-compile-details-scroll">
-                        <ui:Label name="compile-details" class="afu-compile-details" />
-                    </ui:ScrollView>
-                    <ui:Button name="continue-fix-button" text="Continue Fix" />
-                </ui:Foldout>
-
-                <ui:Foldout name="diff-foldout" text="Turn Diff" value="true" class="afu-foldout">
+                <ui:Foldout name="diff-foldout" text="Project Changes" value="true" class="afu-foldout">
+                    <ui:Label name="project-changes-summary" class="afu-project-changes-summary" />
                     <ui:VisualElement name="diff-files-list" class="afu-diff-files" />
-                    <ui:TextField name="diff-text" multiline="true" class="afu-diff-text" />
                 </ui:Foldout>
 
             </ui:ScrollView>

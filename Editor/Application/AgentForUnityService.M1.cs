@@ -116,6 +116,26 @@ namespace AgentForUnity.Editor.Application
             return true;
         }
 
+        internal bool TryAddGameViewScreenshot(out string error)
+        {
+            if (!AgentUnityViewImageCapture.TryCapture(_projectRoot, out var path, out error))
+            {
+                return false;
+            }
+
+            var item = new AgentContextItem(
+                null,
+                AgentContextKind.Screenshot,
+                "Game View " + DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture),
+                path,
+                string.Empty,
+                DateTime.Now);
+            AddOrReplaceContext(item);
+            SaveState();
+            MarkChanged();
+            return true;
+        }
+
         internal IReadOnlyList<AgentConsoleLogEntry> GetConsoleEntries()
         {
             return AgentForUnityContextCollector.GetConsoleEntries();
@@ -221,9 +241,12 @@ namespace AgentForUnity.Editor.Application
             MarkChanged();
             try
             {
+                var response = approval.Kind == AgentApprovalKind.Permission
+                    ? CreatePermissionApprovalResponse(approval, decision)
+                    : new JObject { ["decision"] = decision };
                 await client.RespondToServerRequestAsync(
                     approval.RequestId,
-                    new JObject { ["decision"] = decision });
+                    response);
                 if (!IsCurrentClient(client, generation))
                 {
                     return;
@@ -1051,6 +1074,11 @@ namespace AgentForUnity.Editor.Application
                     TurnState = AgentTurnState.WaitingForApproval;
                     StatusText = "Waiting for file approval";
                     break;
+                case "item/permissions/requestApproval":
+                    request = CreatePermissionApproval(message);
+                    TurnState = AgentTurnState.WaitingForApproval;
+                    StatusText = "Waiting for permission approval";
+                    break;
                 case "item/tool/requestUserInput":
                 case "tool/requestUserInput":
                     request = CreateUserInputRequest(message);
@@ -1083,6 +1111,21 @@ namespace AgentForUnity.Editor.Application
         {
             var request = CreateApprovalBase(message, AgentApprovalKind.FileChange, "File change approval", FindFileDiff(message.Params.Value<string>("itemId")));
             request.Details = string.IsNullOrWhiteSpace(request.Details) ? _lastDiff : request.Details;
+            return request;
+        }
+
+        private AgentApprovalRequest CreatePermissionApproval(CodexMessage message)
+        {
+            var requestedPermissions = message.Params["permissions"] as JObject;
+            var details = requestedPermissions == null
+                ? string.Empty
+                : requestedPermissions.ToString(Formatting.None);
+            var request = CreateApprovalBase(
+                message,
+                AgentApprovalKind.Permission,
+                "Additional permission required",
+                details);
+            request.RequestedPermissions = requestedPermissions == null ? new JObject() : (JObject)requestedPermissions.DeepClone();
             return request;
         }
 
@@ -1133,6 +1176,18 @@ namespace AgentForUnity.Editor.Application
                 Command = message.Params.Value<string>("command"),
                 WorkingDirectory = message.Params.Value<string>("cwd"),
                 Details = details ?? string.Empty
+            };
+        }
+
+        private static JObject CreatePermissionApprovalResponse(AgentApprovalRequest approval, string decision)
+        {
+            var accepted = decision == "accept" || decision == "acceptForSession";
+            return new JObject
+            {
+                ["permissions"] = accepted && approval.RequestedPermissions != null
+                    ? approval.RequestedPermissions.DeepClone()
+                    : new JObject(),
+                ["scope"] = decision == "acceptForSession" ? "session" : "turn"
             };
         }
 

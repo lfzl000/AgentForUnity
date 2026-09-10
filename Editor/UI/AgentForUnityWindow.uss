@@ -919,13 +919,13 @@
 .afu-composer__commands {
     flex-shrink: 0;
     flex-direction: row;
-    margin-left: 0;
+    margin-left: auto;
 }
 
 .afu-context-usage {
     display: none;
     min-width: 38px;
-    margin: 0 8px 1px auto;
+    margin: 0 3px 1px 0;
     padding: 2px 6px;
     white-space: nowrap;
     font-size: 10px;
@@ -1063,24 +1063,60 @@
 }
 
 .afu-diff-files {
-    flex-direction: row;
-    flex-wrap: wrap;
+    flex-direction: column;
     margin-bottom: 4px;
 }
 
-.afu-diff-files > Button {
-    margin: 0 3px 3px 0;
-    font-size: 10px;
-}
-
-.afu-diff-text {
-    min-height: 130px;
-    max-height: 300px;
-}
-
-.afu-diff-text .unity-text-field__input {
+.afu-project-changes-summary {
+    margin: 1px 4px 4px 4px;
     white-space: normal;
     font-size: 10px;
+    color: rgb(190, 190, 190);
+}
+
+.afu-project-change {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    min-height: 21px;
+    margin-bottom: 1px;
+    padding: 1px 4px;
+}
+
+.afu-project-change__name {
+    flex-grow: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    -unity-text-align: middle-left;
+    font-size: 10px;
+}
+
+.afu-project-change__status {
+    width: 14px;
+    flex-shrink: 0;
+    margin-left: 6px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    font-size: 11px;
+}
+
+.afu-project-change__status--modified {
+    color: rgb(78, 201, 176);
+}
+
+.afu-project-change__status--added {
+    color: rgb(181, 206, 168);
+}
+
+.afu-project-change__status--deleted {
+    color: rgb(244, 135, 113);
+}
+
+.afu-project-change__status--renamed {
+    color: rgb(220, 220, 170);
 }
 
 .afu-foldout {

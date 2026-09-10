@@ -245,6 +245,150 @@ namespace AgentForUnity.Editor.Application
             }
         }
 
+        internal static AgentProjectChangesSnapshot GetProjectChanges(string projectRoot)
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "git",
+                Arguments = "status --porcelain=v1 -z --branch --untracked-files=all",
+                WorkingDirectory = projectRoot,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+
+            using (var process = Process.Start(startInfo))
+            {
+                if (process == null)
+                {
+                    throw new InvalidOperationException("Could not start Git.");
+                }
+
+                var outputTask = process.StandardOutput.ReadToEndAsync();
+                var errorTask = process.StandardError.ReadToEndAsync();
+                if (!process.WaitForExit(3000))
+                {
+                    try
+                    {
+                        process.Kill();
+                    }
+                    catch (Exception)
+                    {
+                        // The process may have exited between the timeout and the kill request.
+                    }
+
+                    throw new TimeoutException("Git status did not finish within three seconds.");
+                }
+
+                var output = outputTask.GetAwaiter().GetResult();
+                var error = errorTask.GetAwaiter().GetResult();
+                if (process.ExitCode != 0)
+                {
+                    throw new InvalidOperationException(string.IsNullOrWhiteSpace(error) ? "Git status failed." : error.Trim());
+                }
+
+                return ParseProjectChanges(output);
+            }
+        }
+
+        private static AgentProjectChangesSnapshot ParseProjectChanges(string output)
+        {
+            var changes = new List<AgentProjectChange>();
+            var records = (output ?? string.Empty).Split(new[] { '\0' }, StringSplitOptions.RemoveEmptyEntries);
+            var branch = string.Empty;
+            var firstChangeRecordIndex = 0;
+            if (records.Length > 0 && records[0].StartsWith("## ", StringComparison.Ordinal))
+            {
+                branch = ParseProjectBranch(records[0]);
+                firstChangeRecordIndex = 1;
+            }
+
+            for (var index = firstChangeRecordIndex; index < records.Length; index++)
+            {
+                var record = records[index];
+                if (record.Length < 3 || record[2] != ' ')
+                {
+                    continue;
+                }
+
+                var indexStatus = record[0];
+                var workTreeStatus = record[1];
+                if (indexStatus == '!' && workTreeStatus == '!')
+                {
+                    continue;
+                }
+
+                changes.Add(new AgentProjectChange(
+                    record.Substring(3),
+                    GetProjectChangeType(indexStatus, workTreeStatus)));
+                if (indexStatus == 'R' || indexStatus == 'C')
+                {
+                    index++;
+                }
+            }
+
+            return new AgentProjectChangesSnapshot(
+                branch,
+                changes.OrderBy(change => change.Path, StringComparer.Ordinal).ToList());
+        }
+
+        private static string ParseProjectBranch(string branchRecord)
+        {
+            var branchStatus = branchRecord.Substring(3).Trim();
+            if (branchStatus.StartsWith("No commits yet on ", StringComparison.Ordinal))
+            {
+                return branchStatus.Substring("No commits yet on ".Length);
+            }
+
+            if (branchStatus.StartsWith("HEAD ", StringComparison.Ordinal))
+            {
+                return "HEAD";
+            }
+
+            var upstreamSeparatorIndex = branchStatus.IndexOf("...", StringComparison.Ordinal);
+            var statusSuffixIndex = branchStatus.IndexOf(' ');
+            var branchEndIndex = upstreamSeparatorIndex >= 0
+                ? upstreamSeparatorIndex
+                : statusSuffixIndex >= 0 ? statusSuffixIndex : branchStatus.Length;
+            return branchStatus.Substring(0, branchEndIndex);
+        }
+
+        private static AgentProjectChangeType GetProjectChangeType(char indexStatus, char workTreeStatus)
+        {
+            if (indexStatus == '?' && workTreeStatus == '?')
+            {
+                return AgentProjectChangeType.Untracked;
+            }
+
+            if (indexStatus == 'U' || workTreeStatus == 'U')
+            {
+                return AgentProjectChangeType.Conflicted;
+            }
+
+            if (indexStatus == 'R' || workTreeStatus == 'R')
+            {
+                return AgentProjectChangeType.Renamed;
+            }
+
+            if (indexStatus == 'C' || workTreeStatus == 'C')
+            {
+                return AgentProjectChangeType.Copied;
+            }
+
+            if (indexStatus == 'A' || workTreeStatus == 'A')
+            {
+                return AgentProjectChangeType.Added;
+            }
+
+            if (indexStatus == 'D' || workTreeStatus == 'D')
+            {
+                return AgentProjectChangeType.Deleted;
+            }
+
+            return AgentProjectChangeType.Modified;
+        }
+
         internal static string Redact(string value)
         {
             return string.IsNullOrEmpty(value)

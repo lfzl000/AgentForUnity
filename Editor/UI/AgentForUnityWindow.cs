@@ -46,32 +46,22 @@ namespace AgentForUnity.Editor.UI
         private DropdownField _languageField;
         private ScrollView _messagesScroll;
         private ScrollView _detailsScroll;
-        private ScrollView _compileDetailsScroll;
         private VisualElement _messagesList;
         private VisualElement _messagesDeliveryList;
         private VisualElement _contextsList;
-        private VisualElement _approvalsList;
         private VisualElement _chatApprovalAlert;
         private VisualElement _chatApprovalActions;
         private Label _chatApprovalTitle;
         private Label _chatApprovalMessage;
-        private VisualElement _approvalAlert;
-        private Label _approvalAlertTitle;
-        private Label _approvalAlertMessage;
         private VisualElement _diffFilesList;
-        private Foldout _approvalsFoldout;
-        private Foldout _compileFoldout;
+        private Label _projectChangesSummary;
         private Foldout _diffFoldout;
-        private Label _compileSummary;
-        private Label _compileDetails;
-        private TextField _diffText;
         private TextField _promptField;
         private Button _reconnectButton;
         private Button _disconnectButton;
         private Button _diagnosticsButton;
         private Button _newThreadButton;
         private Button _refreshThreadsButton;
-        private Button _requestCompileButton;
         private Button _interruptButton;
         private Button _sendButton;
         private Button _addSelectionButton;
@@ -80,8 +70,6 @@ namespace AgentForUnity.Editor.UI
         private Button _addSceneButton;
         private Button _addGitDiffButton;
         private Button _addScreenshotButton;
-        private Button _continueFixButton;
-        private Button _reviewApprovalButton;
         private Button _chatAllowOnceButton;
         private Button _chatAllowSessionButton;
         private Button _chatDeclineButton;
@@ -91,13 +79,11 @@ namespace AgentForUnity.Editor.UI
         private int _lastMessageTextLength;
         private string _lastContextSignature;
         private string _lastApprovalSignature;
-        private string _lastCompilationSignature;
         private string _lastDiff;
         private string _lastMessagePresentationSignature;
         private string _lastThreadSignature;
         private string _lastRenderedThreadId;
         private string _activeChatApprovalKey;
-        private bool _hadPendingApprovals;
         private IVisualElementScheduledItem _turnActivityAnimation;
         private int _turnActivityFrame;
         private Label _activeConversationIndicator;
@@ -142,13 +128,11 @@ namespace AgentForUnity.Editor.UI
             _lastMessageTextLength = 0;
             _lastContextSignature = null;
             _lastApprovalSignature = null;
-            _lastCompilationSignature = null;
             _lastDiff = null;
             _lastMessagePresentationSignature = null;
             _lastThreadSignature = null;
             _lastRenderedThreadId = null;
             _activeChatApprovalKey = null;
-            _hadPendingApprovals = false;
 
             var visualTree = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(UxmlPath);
             if (visualTree != null)
@@ -205,32 +189,22 @@ namespace AgentForUnity.Editor.UI
             _languageField = rootVisualElement.Q<DropdownField>("language-field");
             _messagesScroll = rootVisualElement.Q<ScrollView>("messages-scroll");
             _detailsScroll = rootVisualElement.Q<ScrollView>("details-scroll");
-            _compileDetailsScroll = rootVisualElement.Q<ScrollView>("compile-details-scroll");
             _messagesList = rootVisualElement.Q<VisualElement>("messages-list");
             _messagesDeliveryList = rootVisualElement.Q<VisualElement>("messages-delivery-list");
             _contextsList = rootVisualElement.Q<VisualElement>("contexts-list");
-            _approvalsList = rootVisualElement.Q<VisualElement>("approvals-list");
             _chatApprovalAlert = rootVisualElement.Q<VisualElement>("chat-approval-alert");
             _chatApprovalActions = rootVisualElement.Q<VisualElement>("chat-approval-actions");
             _chatApprovalTitle = rootVisualElement.Q<Label>("chat-approval-title");
             _chatApprovalMessage = rootVisualElement.Q<Label>("chat-approval-message");
-            _approvalAlert = rootVisualElement.Q<VisualElement>("approval-alert");
-            _approvalAlertTitle = rootVisualElement.Q<Label>("approval-alert-title");
-            _approvalAlertMessage = rootVisualElement.Q<Label>("approval-alert-message");
             _diffFilesList = rootVisualElement.Q<VisualElement>("diff-files-list");
-            _approvalsFoldout = rootVisualElement.Q<Foldout>("approvals-foldout");
-            _compileFoldout = rootVisualElement.Q<Foldout>("compile-foldout");
+            _projectChangesSummary = rootVisualElement.Q<Label>("project-changes-summary");
             _diffFoldout = rootVisualElement.Q<Foldout>("diff-foldout");
-            _compileSummary = rootVisualElement.Q<Label>("compile-summary");
-            _compileDetails = rootVisualElement.Q<Label>("compile-details");
-            _diffText = rootVisualElement.Q<TextField>("diff-text");
             _promptField = rootVisualElement.Q<TextField>("prompt-field");
             _reconnectButton = rootVisualElement.Q<Button>("reconnect-button");
             _disconnectButton = rootVisualElement.Q<Button>("disconnect-button");
             _diagnosticsButton = rootVisualElement.Q<Button>("diagnostics-button");
             _newThreadButton = rootVisualElement.Q<Button>("new-thread-button");
             _refreshThreadsButton = rootVisualElement.Q<Button>("refresh-threads-button");
-            _requestCompileButton = rootVisualElement.Q<Button>("request-compile-button");
             _interruptButton = rootVisualElement.Q<Button>("interrupt-button");
             _sendButton = rootVisualElement.Q<Button>("send-button");
             _addSelectionButton = rootVisualElement.Q<Button>("add-selection-button");
@@ -239,8 +213,6 @@ namespace AgentForUnity.Editor.UI
             _addSceneButton = rootVisualElement.Q<Button>("add-scene-button");
             _addGitDiffButton = rootVisualElement.Q<Button>("add-git-diff-button");
             _addScreenshotButton = rootVisualElement.Q<Button>("add-screenshot-button");
-            _continueFixButton = rootVisualElement.Q<Button>("continue-fix-button");
-            _reviewApprovalButton = rootVisualElement.Q<Button>("review-approval-button");
             _chatAllowOnceButton = rootVisualElement.Q<Button>("chat-allow-once-button");
             _chatAllowSessionButton = rootVisualElement.Q<Button>("chat-allow-session-button");
             _chatDeclineButton = rootVisualElement.Q<Button>("chat-decline-button");
@@ -266,32 +238,22 @@ namespace AgentForUnity.Editor.UI
                    && _languageField != null
                    && _messagesScroll != null
                    && _detailsScroll != null
-                   && _compileDetailsScroll != null
                    && _messagesList != null
                    && _messagesDeliveryList != null
                    && _contextsList != null
-                   && _approvalsList != null
                    && _chatApprovalAlert != null
                    && _chatApprovalActions != null
                    && _chatApprovalTitle != null
                    && _chatApprovalMessage != null
-                   && _approvalAlert != null
-                   && _approvalAlertTitle != null
-                   && _approvalAlertMessage != null
                    && _diffFilesList != null
-                   && _approvalsFoldout != null
-                   && _compileFoldout != null
+                   && _projectChangesSummary != null
                    && _diffFoldout != null
-                   && _compileSummary != null
-                   && _compileDetails != null
-                   && _diffText != null
                    && _promptField != null
                    && _reconnectButton != null
                    && _disconnectButton != null
                    && _diagnosticsButton != null
                    && _newThreadButton != null
                    && _refreshThreadsButton != null
-                   && _requestCompileButton != null
                    && _interruptButton != null
                    && _sendButton != null
                    && _addSelectionButton != null
@@ -300,8 +262,6 @@ namespace AgentForUnity.Editor.UI
                    && _addSceneButton != null
                    && _addGitDiffButton != null
                    && _addScreenshotButton != null
-                   && _continueFixButton != null
-                   && _reviewApprovalButton != null
                    && _chatAllowOnceButton != null
                    && _chatAllowSessionButton != null
                    && _chatDeclineButton != null
@@ -311,8 +271,6 @@ namespace AgentForUnity.Editor.UI
         private void RegisterUiCallbacks()
         {
             _promptField.multiline = true;
-            _diffText.multiline = true;
-            _diffText.isReadOnly = true;
             _messagesScroll.mode = ScrollViewMode.Vertical;
             _messagesScroll.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
             _detailsScroll.mode = ScrollViewMode.Vertical;
@@ -321,10 +279,6 @@ namespace AgentForUnity.Editor.UI
             detailsContent.style.minWidth = 0;
             detailsContent.style.width = Length.Percent(100f);
             detailsContent.style.maxWidth = Length.Percent(100f);
-            _compileDetailsScroll.mode = ScrollViewMode.Vertical;
-            _compileDetailsScroll.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
-            _compileDetailsScroll.contentContainer.style.minWidth = 0;
-            _compileDetailsScroll.contentContainer.style.width = Length.Percent(100f);
             var messagesContent = _messagesScroll.contentContainer;
             messagesContent.style.minWidth = 0;
             messagesContent.style.width = Length.Percent(100f);
@@ -339,7 +293,6 @@ namespace AgentForUnity.Editor.UI
             _diagnosticsButton.clicked += AgentForUnityDiagnosticsWindow.Open;
             _newThreadButton.clicked += () => _service.NewThread();
             _refreshThreadsButton.clicked += () => _service.RefreshThreads();
-            _requestCompileButton.clicked += () => _service.RequestUnityCompilation();
             _interruptButton.clicked += () => _service.Interrupt();
             _sendButton.clicked += SendPrompt;
             _addSelectionButton.clicked += () => AddContext(AgentContextKind.Selection);
@@ -347,9 +300,7 @@ namespace AgentForUnity.Editor.UI
             _addFileButton.clicked += AddFileContext;
             _addSceneButton.clicked += () => AddContext(AgentContextKind.Scene);
             _addGitDiffButton.clicked += () => AddContext(AgentContextKind.GitDiff);
-            _addScreenshotButton.clicked += AddClipboardScreenshot;
-            _continueFixButton.clicked += () => _service.ContinueFixCompilation();
-            _reviewApprovalButton.clicked += FocusPendingApproval;
+            _addScreenshotButton.clicked += ShowScreenshotMenu;
             _chatAllowOnceButton.clicked += () => ResolveActiveChatApproval("accept");
             _chatAllowSessionButton.clicked += () => ResolveActiveChatApproval("acceptForSession");
             _chatDeclineButton.clicked += () => ResolveActiveChatApproval("decline");
@@ -402,9 +353,6 @@ namespace AgentForUnity.Editor.UI
                 _contextUsageLabel.style.display = string.IsNullOrWhiteSpace(_contextUsageLabel.text)
                     ? DisplayStyle.None
                     : DisplayStyle.Flex;
-                _requestCompileButton.style.display = _service.TurnState == AgentTurnState.Completed
-                    ? DisplayStyle.Flex
-                    : DisplayStyle.None;
 
                 SetLabelValue(_threadValue, _service.CurrentThreadTitle, T("New conversation", "新对话"));
                 _threadValue.tooltip = string.IsNullOrEmpty(_service.ThreadId)
@@ -440,9 +388,8 @@ namespace AgentForUnity.Editor.UI
                     _service.TurnState == AgentTurnState.Completed,
                     _service.LastTurnDuration);
                 RefreshContexts(_service.Contexts);
-                RefreshApprovals(_service.Approvals);
-                RefreshCompilation(_service.Compilation);
-                RefreshDiff(_service.LastDiff);
+                RefreshChatApproval(_service.Approvals);
+                RefreshProjectChanges(_service.ProjectChanges, _service.ProjectBranch);
                 UpdateActionAvailability();
             }
             finally
@@ -1187,7 +1134,7 @@ namespace AgentForUnity.Editor.UI
             return text.Substring(0, maximumCharacters) + "\n[Preview truncated for editor performance.]";
         }
 
-        private void RefreshApprovals(IReadOnlyList<AgentApprovalRequest> approvals)
+        private void RefreshChatApproval(IReadOnlyList<AgentApprovalRequest> approvals)
         {
             var signature = approvals == null
                 ? string.Empty
@@ -1200,74 +1147,42 @@ namespace AgentForUnity.Editor.UI
             }
 
             _lastApprovalSignature = signature;
-            _approvalsList.Clear();
-            var pendingCount = approvals?.Count(item => !item.IsResolved) ?? 0;
-            _approvalsFoldout.text = pendingCount == 0 ? T("Approvals", "审批") : T("Approvals", "审批") + $" ({pendingCount} " + T("pending", "待处理") + ")";
-            RefreshApprovalAlert(approvals, pendingCount);
-            if (approvals == null || approvals.Count == 0)
+            var approval = approvals?.FirstOrDefault(item => !item.IsResolved);
+            var hasPendingApproval = approval != null;
+            _chatApprovalAlert.style.display = hasPendingApproval ? DisplayStyle.Flex : DisplayStyle.None;
+            _activeChatApprovalKey = approval?.Key;
+            if (!hasPendingApproval)
             {
-                AddEmptyCard(_approvalsList, T("No approval requests", "暂无审批请求"));
                 return;
             }
 
-            foreach (var approval in approvals)
-            {
-                _approvalsList.Add(CreateApprovalCard(approval));
-            }
-        }
-
-        private void RefreshApprovalAlert(IReadOnlyList<AgentApprovalRequest> approvals, int pendingCount)
-        {
-            var hasPending = pendingCount > 0;
-            _windowRoot.EnableInClassList("afu--approval-required", hasPending);
-            _chatApprovalAlert.style.display = hasPending ? DisplayStyle.Flex : DisplayStyle.None;
-            _approvalAlert.style.display = hasPending ? DisplayStyle.Flex : DisplayStyle.None;
-            if (!hasPending)
-            {
-                _activeChatApprovalKey = null;
-                _hadPendingApprovals = false;
-                return;
-            }
-
-            _approvalAlertTitle.text = pendingCount == 1
-                ? T("ACTION REQUIRED · PERMISSION NEEDED", "需要操作 · 等待权限")
-                : T("ACTION REQUIRED", "需要操作") + $" · {pendingCount} " + T("PERMISSIONS NEEDED", "项权限等待处理");
-            var firstPending = approvals?.FirstOrDefault(item => !item.IsResolved);
-            var requestName = firstPending == null || string.IsNullOrWhiteSpace(firstPending.Title)
-                ? T("this request", "此请求")
-                : firstPending.Title;
-            _activeChatApprovalKey = firstPending?.Key;
-            var requiresUserInput = firstPending?.Kind == AgentApprovalKind.UserInput;
-            _chatApprovalActions.style.display = requiresUserInput ? DisplayStyle.None : DisplayStyle.Flex;
-            _reviewApprovalButton.style.display = requiresUserInput ? DisplayStyle.Flex : DisplayStyle.None;
-            var canRespond = firstPending != null &&
-                             !firstPending.IsResponding &&
-                             _service.ConnectionState == AgentConnectionState.Ready;
+            var canRespond = !approval.IsResponding && _service.ConnectionState == AgentConnectionState.Ready;
             _chatAllowOnceButton.SetEnabled(canRespond);
             _chatAllowSessionButton.SetEnabled(canRespond);
             _chatDeclineButton.SetEnabled(canRespond);
             _chatCancelTurnButton.SetEnabled(canRespond);
-            _chatApprovalTitle.text = pendingCount == 1
-                ? T("Permission required", "需要权限")
-                : $"{pendingCount} " + T("permissions required", "项权限等待处理");
-            var action = DescribeApprovalAction(firstPending);
-            _chatApprovalMessage.text = $"{requestName}" + T(" is waiting for your decision. Current action: ", " 正在等待你的决定。当前操作：") + action;
-            _approvalAlertMessage.text = T("Codex is paused at ", "Codex 已暂停于 ") + requestName + T(". Current action: ", "。当前操作：") + action;
-
-            _approvalsFoldout.SetValueWithoutNotify(true);
-            if (_hadPendingApprovals)
-            {
-                return;
-            }
-
-            _hadPendingApprovals = true;
-            _detailsScroll.schedule.Execute(() => _detailsScroll.ScrollTo(_approvalAlert));
+            _chatApprovalTitle.text = T("Permission required", "需要权限");
+            _chatApprovalMessage.text = T("This request: ", "本次内容：") +
+                                        FormatApprovalContent(approval);
         }
 
-        private void FocusPendingApproval()
+        private static string FormatApprovalContent(AgentApprovalRequest approval)
         {
-            _approvalsFoldout.SetValueWithoutNotify(true);
-            _detailsScroll.schedule.Execute(() => _detailsScroll.ScrollTo(_approvalAlert));
+            var content = !string.IsNullOrWhiteSpace(approval.Command)
+                ? approval.Command
+                : !string.IsNullOrWhiteSpace(approval.Details)
+                    ? approval.Details
+                    : approval.Reason;
+            content = (content ?? string.Empty).Trim();
+            if (content.Length == 0)
+            {
+                return T("Details unavailable", "未提供详细内容");
+            }
+
+            const int maximumCharacters = 600;
+            return content.Length <= maximumCharacters
+                ? content
+                : content.Substring(0, maximumCharacters) + "\n...";
         }
 
         private void ResolveActiveChatApproval(string decision)
@@ -1278,164 +1193,51 @@ namespace AgentForUnity.Editor.UI
             }
         }
 
-        private VisualElement CreateApprovalCard(AgentApprovalRequest approval)
+        private void RefreshProjectChanges(IReadOnlyList<AgentProjectChange> changes, string branch)
         {
-            var card = new VisualElement();
-            card.AddToClassList("afu-approval-card");
-            card.AddToClassList(approval.IsResolved ? "afu-approval-card--resolved" : "afu-approval-card--pending");
-            var state = approval.IsResolved ? approval.Resolution : approval.IsResponding ? "responding" : "pending";
-            card.Add(CardTitle($"{approval.Title} · {state}"));
-            if (!string.IsNullOrWhiteSpace(approval.Reason))
-            {
-                card.Add(CardBody(T("Reason: ", "原因：") + approval.Reason));
-            }
-
-            if (!string.IsNullOrWhiteSpace(approval.WorkingDirectory))
-            {
-                card.Add(CardBody("cwd: " + approval.WorkingDirectory));
-            }
-
-            if (!string.IsNullOrWhiteSpace(approval.Details))
-            {
-                card.Add(CardBody(approval.Details));
-            }
-
-            if (approval.IsResolved)
-            {
-                return card;
-            }
-
-            if (approval.Kind == AgentApprovalKind.UserInput)
-            {
-                AddUserQuestions(card, approval);
-                return card;
-            }
-
-            var actions = new VisualElement();
-            actions.AddToClassList("afu-card__actions");
-            actions.Add(ApprovalButton(T("Allow Once", "仅允许一次"), approval, "accept"));
-            actions.Add(ApprovalButton(T("Allow Session", "本次会话允许"), approval, "acceptForSession"));
-            actions.Add(ApprovalButton(T("Decline", "拒绝"), approval, "decline"));
-            actions.Add(ApprovalButton(T("Cancel Turn", "取消本轮"), approval, "cancel"));
-            card.Add(actions);
-            return card;
-        }
-
-        private void AddUserQuestions(VisualElement card, AgentApprovalRequest approval)
-        {
-            var answerReaders = new Dictionary<string, Func<string>>(StringComparer.Ordinal);
-            foreach (var question in approval.Questions)
-            {
-                var group = new VisualElement();
-                group.AddToClassList("afu-question");
-                var prompt = new Label(string.IsNullOrWhiteSpace(question.Header)
-                    ? question.Question
-                    : question.Header + ": " + question.Question);
-                prompt.AddToClassList("afu-question__label");
-                group.Add(prompt);
-
-                if (question.Options != null && question.Options.Count > 0)
-                {
-                    var choices = new List<string>(question.Options);
-                    if (question.AllowsOther)
-                    {
-                        choices.Add(T("Other...", "其他…"));
-                    }
-
-                    var dropdown = new DropdownField(choices, 0);
-                    group.Add(dropdown);
-                    var other = new TextField { isPasswordField = question.IsSecret };
-                    other.style.display = DisplayStyle.None;
-                    if (question.AllowsOther)
-                    {
-                        dropdown.RegisterValueChangedCallback(change =>
-                            other.style.display = change.newValue == T("Other...", "其他…") ? DisplayStyle.Flex : DisplayStyle.None);
-                        group.Add(other);
-                    }
-
-                    answerReaders[question.Id] = () => dropdown.value == T("Other...", "其他…") ? other.value : dropdown.value;
-                }
-                else
-                {
-                    var input = new TextField { isPasswordField = question.IsSecret };
-                    group.Add(input);
-                    answerReaders[question.Id] = () => input.value;
-                }
-
-                card.Add(group);
-            }
-
-            var submit = new Button(() =>
-            {
-                var answers = answerReaders.ToDictionary(pair => pair.Key, pair => pair.Value());
-                _service.SubmitUserInput(approval.Key, answers);
-            }) { text = T("Submit", "提交") };
-            submit.SetEnabled(!approval.IsResponding && _service.ConnectionState == AgentConnectionState.Ready);
-            var actions = new VisualElement();
-            actions.AddToClassList("afu-card__actions");
-            actions.Add(submit);
-            card.Add(actions);
-        }
-
-        private Button ApprovalButton(string label, AgentApprovalRequest approval, string decision)
-        {
-            var button = new Button(() => _service.ResolveApproval(approval.Key, decision)) { text = label };
-            button.AddToClassList(decision == "accept" || decision == "acceptForSession"
-                ? "afu-approval-button--allow"
-                : "afu-approval-button--decline");
-            button.SetEnabled(!approval.IsResponding && _service.ConnectionState == AgentConnectionState.Ready);
-            return button;
-        }
-
-        private void RefreshCompilation(AgentCompilationResult compilation)
-        {
-            var signature = compilation == null
+            var signature = (branch ?? string.Empty) + "\n" + (changes == null
                 ? string.Empty
-                : compilation.State + "|" + compilation.Summary + "|" + compilation.Details;
-            if (signature == _lastCompilationSignature)
+                : string.Join("|", changes.Select(change => change.Path + ":" + change.ChangeType)));
+            if (string.Equals(signature, _lastDiff, StringComparison.Ordinal))
             {
                 return;
             }
 
-            _lastCompilationSignature = signature;
-            _compileSummary.text = compilation?.Summary ?? T("No compilation result", "暂无编译结果");
-            _compileDetails.text = compilation?.Details ?? string.Empty;
-            var detailsDisplay = string.IsNullOrWhiteSpace(_compileDetails.text)
-                ? DisplayStyle.None
-                : DisplayStyle.Flex;
-            _compileDetails.style.display = detailsDisplay;
-            _compileDetailsScroll.style.display = detailsDisplay;
-            _continueFixButton.style.display = compilation != null && compilation.CanContinueFix
-                ? DisplayStyle.Flex
-                : DisplayStyle.None;
-        }
-
-        private void RefreshDiff(string diff)
-        {
-            diff = diff ?? string.Empty;
-            if (string.Equals(diff, _lastDiff, StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            _lastDiff = diff;
-            _diffText.SetValueWithoutNotify(diff);
+            _lastDiff = signature;
             _diffFilesList.Clear();
-            var paths = ParseDiffPaths(diff);
-            _diffFoldout.text = paths.Count == 0 ? T("Turn Diff", "本轮差异") : T("Turn Diff", "本轮差异") + $" ({paths.Count} " + T("files", "个文件") + ")";
-            foreach (var path in paths)
+            var files = changes ?? Array.Empty<AgentProjectChange>();
+            _diffFoldout.text = T("Project Changes", "当前变更");
+            var summary = string.Empty;
+            if (!string.IsNullOrWhiteSpace(branch))
             {
-                var capturedPath = path;
-                _diffFilesList.Add(new Button(() => OpenProjectPath(capturedPath))
-                {
-                    text = capturedPath,
-                    tooltip = T("Open or reveal this changed file", "打开或定位此变更文件")
-                });
+                summary = T("Branch: ", "分支：") + branch + " · ";
             }
 
-            if (string.IsNullOrEmpty(diff))
+            _projectChangesSummary.text = summary + files.Count + " " + T("files", "个文件");
+            foreach (var file in files)
             {
-                AddEmptyCard(_diffFilesList, T("No Diff for this turn", "本轮没有差异"));
+                var capturedPath = file.Path;
+                var item = new Button(() => OpenProjectPath(capturedPath))
+                {
+                    tooltip = capturedPath + "\n" + ProjectChangeTypeLabel(file.ChangeType)
+                };
+                item.AddToClassList("afu-project-change");
+
+                var name = new Label(ProjectChangeFileName(capturedPath));
+                name.AddToClassList("afu-project-change__name");
+                item.Add(name);
+
+                var status = new Label(ProjectChangeStatusLetter(file.ChangeType));
+                status.AddToClassList("afu-project-change__status");
+                status.AddToClassList("afu-project-change__status--" + ProjectChangeStatusClass(file.ChangeType));
+                status.tooltip = ProjectChangeTypeLabel(file.ChangeType);
+                item.Add(status);
+                _diffFilesList.Add(item);
+            }
+
+            if (files.Count == 0)
+            {
+                AddEmptyCard(_diffFilesList, T("No project changes", "当前没有变更"));
             }
         }
 
@@ -1548,28 +1350,71 @@ namespace AgentForUnity.Editor.UI
             }
         }
 
-        private static IReadOnlyList<string> ParseDiffPaths(string diff)
+        private string ProjectChangeTypeLabel(AgentProjectChangeType changeType)
         {
-            var paths = new HashSet<string>(StringComparer.Ordinal);
-            using (var reader = new StringReader(diff ?? string.Empty))
+            switch (changeType)
             {
-                string line;
-                while ((line = reader.ReadLine()) != null)
-                {
-                    if (!line.StartsWith("+++ b/", StringComparison.Ordinal))
-                    {
-                        continue;
-                    }
-
-                    var path = line.Substring(6).Trim();
-                    if (!string.IsNullOrWhiteSpace(path) && path != "/dev/null")
-                    {
-                        paths.Add(path);
-                    }
-                }
+                case AgentProjectChangeType.Added:
+                    return T("Added", "新增");
+                case AgentProjectChangeType.Deleted:
+                    return T("Deleted", "删除");
+                case AgentProjectChangeType.Renamed:
+                    return T("Renamed", "重命名");
+                case AgentProjectChangeType.Copied:
+                    return T("Copied", "复制");
+                case AgentProjectChangeType.Untracked:
+                    return T("Untracked", "未跟踪");
+                case AgentProjectChangeType.Conflicted:
+                    return T("Conflicted", "冲突");
+                default:
+                    return T("Modified", "已修改");
             }
+        }
 
-            return paths.OrderBy(path => path, StringComparer.Ordinal).ToList();
+        private static string ProjectChangeFileName(string path)
+        {
+            var normalizedPath = (path ?? string.Empty).Replace('\\', '/');
+            var separatorIndex = normalizedPath.LastIndexOf('/');
+            return separatorIndex < 0 ? normalizedPath : normalizedPath.Substring(separatorIndex + 1);
+        }
+
+        private static string ProjectChangeStatusLetter(AgentProjectChangeType changeType)
+        {
+            switch (changeType)
+            {
+                case AgentProjectChangeType.Added:
+                    return "A";
+                case AgentProjectChangeType.Deleted:
+                    return "D";
+                case AgentProjectChangeType.Renamed:
+                    return "R";
+                case AgentProjectChangeType.Copied:
+                    return "C";
+                case AgentProjectChangeType.Untracked:
+                    return "U";
+                case AgentProjectChangeType.Conflicted:
+                    return "!";
+                default:
+                    return "M";
+            }
+        }
+
+        private static string ProjectChangeStatusClass(AgentProjectChangeType changeType)
+        {
+            switch (changeType)
+            {
+                case AgentProjectChangeType.Added:
+                case AgentProjectChangeType.Untracked:
+                    return "added";
+                case AgentProjectChangeType.Deleted:
+                case AgentProjectChangeType.Conflicted:
+                    return "deleted";
+                case AgentProjectChangeType.Renamed:
+                case AgentProjectChangeType.Copied:
+                    return "renamed";
+                default:
+                    return "modified";
+            }
         }
 
         private static Label CardTitle(string text)
@@ -1593,25 +1438,6 @@ namespace AgentForUnity.Editor.UI
             host.Add(empty);
         }
 
-        private static string DescribeApprovalAction(AgentApprovalRequest approval)
-        {
-            if (approval == null)
-            {
-                return "details unavailable";
-            }
-
-            var action = !string.IsNullOrWhiteSpace(approval.Command)
-                ? approval.Command
-                : !string.IsNullOrWhiteSpace(approval.Details)
-                    ? approval.Details
-                    : approval.Reason;
-            action = (action ?? string.Empty).Replace('\r', ' ').Replace('\n', ' ').Trim();
-            const int maximumLength = 220;
-            return action.Length == 0
-                ? "details unavailable"
-                : action.Length <= maximumLength ? action : action.Substring(0, maximumLength) + "…";
-        }
-
         private void UpdateActionAvailability()
         {
             if (_service == null || _promptField == null)
@@ -1627,8 +1453,6 @@ namespace AgentForUnity.Editor.UI
             _disconnectButton.SetEnabled(_service.CanDisconnect);
             _newThreadButton.SetEnabled(_service.CanStartThread);
             _refreshThreadsButton.SetEnabled(_service.CanRefreshThreads);
-            _requestCompileButton.SetEnabled(_service.CanRequestUnityCompilation);
-            _continueFixButton.SetEnabled(_service.Compilation.CanContinueFix && _service.CanSend);
         }
 
         private void SendPrompt()
@@ -1669,6 +1493,34 @@ namespace AgentForUnity.Editor.UI
         private void AddClipboardScreenshot()
         {
             TryAddClipboardScreenshot(true);
+        }
+
+        private void ShowScreenshotMenu()
+        {
+            var menu = new GenericMenu();
+            menu.AddItem(
+                new GUIContent(T("Clipboard", "剪贴板")),
+                false,
+                AddClipboardScreenshot);
+            menu.AddItem(
+                new GUIContent(T("Game View", "Game 视图")),
+                false,
+                AddGameViewScreenshot);
+
+            menu.DropDown(_addScreenshotButton.worldBound);
+        }
+
+        private void AddGameViewScreenshot()
+        {
+            if (_service.TryAddGameViewScreenshot(out var error))
+            {
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(error))
+            {
+                ShowNotification(new GUIContent(error));
+            }
         }
 
         private bool TryAddClipboardScreenshot(bool showMissingImageNotice)
@@ -1739,8 +1591,6 @@ namespace AgentForUnity.Editor.UI
             InterfaceLanguageChanged?.Invoke();
             _lastThreadSignature = null;
             _lastContextSignature = null;
-            _lastApprovalSignature = null;
-            _lastCompilationSignature = null;
             _lastDiff = null;
             _lastMessagePresentationSignature = null;
             foreach (var row in _messageRows)
@@ -1768,29 +1618,25 @@ namespace AgentForUnity.Editor.UI
             SetText("disconnect-button", "Disconnect", "断开连接", "Stop the Codex App Server connection", "停止 Codex App Server 连接");
             SetText("new-thread-button", "New Thread", "新建对话", "Start a new project-scoped thread", "开始一个项目范围的新对话");
             SetText("refresh-threads-button", "↻", "↻", "Reload conversations for this Unity project", "重新加载此 Unity 项目的对话");
-            SetText("request-compile-button", "Compile Unity", "编译 Unity", "Request Unity script compilation for this completed conversation", "为已完成对话请求 Unity 脚本编译");
-            SetText("chat-allow-once-button", "Allow Once", "仅允许一次");
-            SetText("chat-allow-session-button", "Allow Session", "本次会话允许");
-            SetText("chat-decline-button", "Decline", "拒绝");
-            SetText("chat-cancel-turn-button", "Cancel Turn", "取消本轮");
-            SetText("review-approval-button", "Answer Request", "处理请求");
             SetText("add-selection-button", "+ Selection", "+ 选择");
             SetText("add-console-button", "+ Console", "+ 控制台");
             SetText("add-file-button", "+ File", "+ 文件");
             SetText("add-scene-button", "+ Scene", "+ 场景");
             SetText("add-git-diff-button", "+ Git Diff", "+ Git 差异");
-            SetText("add-screenshot-button", "+ Screenshot", "+ 截图");
+            SetText(
+                "add-screenshot-button",
+                "+ Screenshot",
+                "+ 截图",
+                "Attach an image from the clipboard or Game view",
+                "从剪贴板或 Game 视图附加图片");
             SetText("interrupt-button", "Stop", "停止");
-            SetText("continue-fix-button", "Continue Fix", "继续修复");
-            SetText("chat-approval-title", "Permission required", "需要权限");
-            SetText("approval-alert-title", "ACTION REQUIRED", "需要操作");
-            SetText("chat-approval-message", "Codex is waiting for your decision.", "Codex 正在等待你的决定。");
-            SetText("approval-alert-message", "Codex is waiting for permission before it can continue.", "Codex 正在等待权限后继续。");
+            SetText("chat-allow-once-button", "Allow Once", "仅允许一次");
+            SetText("chat-allow-session-button", "Allow Session", "本次会话允许");
+            SetText("chat-decline-button", "Decline", "拒绝");
+            SetText("chat-cancel-turn-button", "Cancel Turn", "取消本轮");
             _modelField.tooltip = T("Model", "模型");
             _reasoningField.tooltip = T("Reasoning effort", "推理强度");
             _languageField.tooltip = T("Interface language", "界面语言");
-            _compileFoldout.text = T("Unity Compile", "Unity 编译");
-            _diffFoldout.text = T("Turn Diff", "本轮差异");
         }
 
         private void SetText(string name, string english, string chinese, string englishTooltip = null, string chineseTooltip = null)
@@ -2187,12 +2033,6 @@ namespace AgentForUnity.Editor.UI
             threadBar.Add(Label("thread-value", "New conversation", "afu-thread-value"));
             threadBar.Add(Label("turn-activity-indicator", string.Empty, "afu-turn-activity"));
             threadBar.Add(Label("turn-state", "Idle", "afu-turn-state"));
-            var requestCompile = Button(
-                "request-compile-button",
-                "Compile Unity",
-                "Request Unity script compilation for this completed conversation");
-            requestCompile.AddToClassList("afu-request-compile");
-            threadBar.Add(requestCompile);
             chatPane.Add(threadBar);
 
             var messageScroll = new ScrollView { name = "messages-scroll" };
@@ -2225,9 +2065,6 @@ namespace AgentForUnity.Editor.UI
             chatCancelTurnButton.AddToClassList("afu-chat-approval-action--cancel");
             chatApprovalActions.Add(chatCancelTurnButton);
             chatApprovalAlert.Add(chatApprovalActions);
-            var reviewApprovalButton = Button("review-approval-button", "Answer Request", "Show the pending input request");
-            reviewApprovalButton.AddToClassList("afu-chat-approval-alert__button");
-            chatApprovalAlert.Add(reviewApprovalButton);
             chatPane.Add(chatApprovalAlert);
 
             var composer = Element(null, "afu-composer");
@@ -2237,7 +2074,10 @@ namespace AgentForUnity.Editor.UI
             contextToolbar.Add(Button("add-file-button", "+ File", "Attach a text file inside this project"));
             contextToolbar.Add(Button("add-scene-button", "+ Scene", "Attach the active scene summary"));
             contextToolbar.Add(Button("add-git-diff-button", "+ Git Diff", "Attach the current unstaged Git diff"));
-            contextToolbar.Add(Button("add-screenshot-button", "+ Screenshot", "Attach an image from the clipboard (Cmd/Ctrl+V)"));
+            contextToolbar.Add(Button(
+                "add-screenshot-button",
+                "+ Screenshot",
+                "Attach an image from the clipboard or Game view"));
             composer.Add(contextToolbar);
             composer.Add(Element("contexts-list", "afu-contexts-list"));
             var prompt = new TextField { name = "prompt-field", multiline = true };
@@ -2261,9 +2101,8 @@ namespace AgentForUnity.Editor.UI
             permissionField.AddToClassList("afu-select--permission");
             composerSettings.Add(permissionField);
             composerActions.Add(composerSettings);
-            var contextUsage = Label("context-usage-label", string.Empty, "afu-context-usage");
-            composerActions.Add(contextUsage);
             var composerCommands = Element(null, "afu-composer__commands");
+            composerCommands.Add(Label("context-usage-label", string.Empty, "afu-context-usage"));
             composerCommands.Add(Button("interrupt-button", "Stop", "Interrupt the active turn"));
             var send = Button("send-button", "Send", "Send this prompt to the current thread");
             send.AddToClassList("afu-primary-button");
@@ -2275,34 +2114,10 @@ namespace AgentForUnity.Editor.UI
 
             var detailsPane = new ScrollView { name = "details-scroll" };
             detailsPane.AddToClassList("afu-details-pane");
-            var approvalAlert = Element("approval-alert", "afu-approval-alert");
-            approvalAlert.Add(Label("approval-alert-title", "ACTION REQUIRED", "afu-approval-alert__title"));
-            approvalAlert.Add(Label("approval-alert-message", "Codex is waiting for permission before it can continue.", "afu-approval-alert__message"));
-            detailsPane.Add(approvalAlert);
-            var approvalsFoldout = new Foldout { name = "approvals-foldout", text = "Approvals", value = true };
-            approvalsFoldout.AddToClassList("afu-foldout");
-            var approvalsList = new ScrollView { name = "approvals-list" };
-            approvalsList.AddToClassList("afu-card-list");
-            approvalsList.AddToClassList("afu-card-list--approvals");
-            approvalsFoldout.Add(approvalsList);
-            detailsPane.Add(approvalsFoldout);
-
-            var compileFoldout = new Foldout { name = "compile-foldout", text = "Unity Compile", value = true };
-            compileFoldout.AddToClassList("afu-foldout");
-            compileFoldout.Add(Label("compile-summary", "No compilation result", "afu-detail-value"));
-            var compileDetailsScroll = new ScrollView { name = "compile-details-scroll" };
-            compileDetailsScroll.AddToClassList("afu-compile-details-scroll");
-            compileDetailsScroll.Add(Label("compile-details", string.Empty, "afu-compile-details"));
-            compileFoldout.Add(compileDetailsScroll);
-            compileFoldout.Add(Button("continue-fix-button", "Continue Fix", "Send compiler errors to this thread"));
-            detailsPane.Add(compileFoldout);
-
-            var diffFoldout = new Foldout { name = "diff-foldout", text = "Turn Diff", value = true };
+            var diffFoldout = new Foldout { name = "diff-foldout", text = "Project Changes", value = true };
             diffFoldout.AddToClassList("afu-foldout");
+            diffFoldout.Add(Label("project-changes-summary", string.Empty, "afu-project-changes-summary"));
             diffFoldout.Add(Element("diff-files-list", "afu-diff-files"));
-            var diffText = new TextField { name = "diff-text", multiline = true, isReadOnly = true };
-            diffText.AddToClassList("afu-diff-text");
-            diffFoldout.Add(diffText);
             detailsPane.Add(diffFoldout);
 
             workspace.Add(detailsPane);

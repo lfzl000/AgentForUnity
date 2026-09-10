@@ -182,6 +182,7 @@ namespace AgentForUnity.Editor.Application
         private const int MaxAutomaticThreadTitleLength = 48;
         private const int MaxReconnectAttempts = 3;
         private const double ReconnectStabilitySeconds = 30d;
+        private const double ProjectChangesRefreshSeconds = 2d;
         private const string UnityCompilationDeveloperInstructions =
             "You are operating through Agent for Unity. Do not trigger Unity script compilation or perform " +
             "compilation validation while a turn is active. Complete the requested work and end the turn first. " +
@@ -194,6 +195,7 @@ namespace AgentForUnity.Editor.Application
         private readonly List<string> _reasoningEfforts = new List<string>();
         private readonly List<AgentChatMessage> _messages = new List<AgentChatMessage>();
         private readonly List<string> _diagnostics = new List<string>();
+        private readonly List<AgentProjectChange> _projectChanges = new List<AgentProjectChange>();
         private readonly Dictionary<string, AgentChatMessage> _streamingMessages =
             new Dictionary<string, AgentChatMessage>(StringComparer.Ordinal);
         private readonly Dictionary<string, AgentContextUsageSnapshot> _contextUsageByThreadId =
@@ -220,6 +222,8 @@ namespace AgentForUnity.Editor.Application
         private int _reconnectAttempts;
         private double _nextReconnectTime = -1d;
         private double _connectionStableSince = -1d;
+        private double _nextProjectChangesRefreshTime;
+        private string _projectBranch = string.Empty;
         private CodexAppServerClient _pendingDisconnectedClient;
         private string _pendingDisconnect;
         private AgentPermissionMode _permissionMode;
@@ -290,6 +294,8 @@ namespace AgentForUnity.Editor.Application
         internal IReadOnlyList<string> ReasoningEfforts => _reasoningEfforts;
         internal IReadOnlyList<AgentChatMessage> Messages => _messages;
         internal IReadOnlyList<string> Diagnostics => _diagnostics;
+        internal IReadOnlyList<AgentProjectChange> ProjectChanges => _projectChanges;
+        internal string ProjectBranch => _projectBranch;
         internal int DiagnosticsVersion => _diagnosticsVersion;
         internal bool CanSend => ConnectionState == AgentConnectionState.Ready &&
                                  !IsTurnActive &&
@@ -769,12 +775,45 @@ namespace AgentForUnity.Editor.Application
             }
 
             UpdateCompilationVerificationRequest();
+            RefreshProjectChanges();
 
             if (_changePending)
             {
                 _changePending = false;
                 Changed?.Invoke();
             }
+        }
+
+        private void RefreshProjectChanges()
+        {
+            if (EditorApplication.timeSinceStartup < _nextProjectChangesRefreshTime)
+            {
+                return;
+            }
+
+            _nextProjectChangesRefreshTime = EditorApplication.timeSinceStartup + ProjectChangesRefreshSeconds;
+            AgentProjectChangesSnapshot snapshot;
+            try
+            {
+                snapshot = AgentForUnityContextCollector.GetProjectChanges(_projectRoot);
+            }
+            catch (Exception)
+            {
+                return;
+            }
+
+            if (_projectBranch == snapshot.Branch &&
+                _projectChanges.Count == snapshot.Changes.Count &&
+                _projectChanges.Zip(snapshot.Changes, (current, next) =>
+                    current.Path == next.Path && current.ChangeType == next.ChangeType).All(matches => matches))
+            {
+                return;
+            }
+
+            _projectBranch = snapshot.Branch;
+            _projectChanges.Clear();
+            _projectChanges.AddRange(snapshot.Changes);
+            MarkChanged();
         }
 
         public void Dispose()

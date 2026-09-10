@@ -2,6 +2,13 @@
 
 All notable changes to Agent for Unity are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Direct screenshot capture from the current Unity Game view.
+- Approval cards for App Server filesystem and network permission requests, with one-turn and session grant scopes.
+
 ## [0.3.0] - 2026-09-09
 
 ### Added

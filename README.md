@@ -13,7 +13,7 @@ The core workflow provides:
 - list and switch between resumable Codex conversations created for the current Unity project;
 - stream Agent messages, plans, reasoning summaries, tools, commands, and file changes;
 - attach Project, Selection, recent Console, File, Scene, and Git Diff context;
-- paste clipboard screenshots as removable image attachments with thumbnail previews;
+- attach clipboard images or the current Game view as removable screenshots with thumbnail previews;
 - approve or decline command, network, file-change, and user-input requests;
 - choose a persistent Ask Approval, Codex Decides, or Full Access permission mode;
 - inspect the current turn's aggregated Diff and open changed files;
@@ -49,9 +49,11 @@ In Unity, choose **Window > Agent for Unity**. The window reports the detected C
 
 Choose an available model, reasoning effort, and permission mode before sending a prompt. Attach Project, Selection, specific Console entries, File, Scene, or Git Diff context as required. The first new thread automatically receives the project summary. Context is redacted, de-duplicated by hash, and constrained by size budgets before it is sent.
 
-Use **+ Screenshot**, or press **Cmd+V** on macOS while the prompt is focused, to attach an image currently on the clipboard. Screenshot drafts and sent messages show thumbnail previews; remove a draft with the **x** button on its preview. Clipboard images are stored under `Library/AgentForUnity/Attachments` and sent to Codex as local image inputs rather than imported Unity assets.
+Use **+ Screenshot** to attach an image from the clipboard or capture the current rendered Game view. Press **Cmd+V** on macOS while the prompt is focused to attach the clipboard image directly. Screenshot drafts and sent messages show thumbnail previews; remove a draft with the **x** button on its preview. Images are stored under `Library/AgentForUnity/Attachments` and sent to Codex as local image inputs rather than imported Unity assets.
 
 Agent responses render common Markdown. Plans, reasoning summaries, tool actions, command output, and file-change activity are grouped with the Agent message for the same turn. Use **Stop** to interrupt an active turn. While a turn is running, **Send** becomes **Steer** and appends a correction to that turn.
+
+When Codex requests additional filesystem or network access during a turn, Agent for Unity displays an approval card instead of rejecting the protocol request. **Allow Once** grants the requested access for the current turn; **Allow Session** uses the App Server session scope; decline grants no additional access.
 
 The details pane contains approval requests, compilation feedback, the current turn Diff, connection metadata, and diagnostics. Changed-file links in Markdown and the Diff open project-relative files. After a completed turn with a recorded file Diff, the package requests Unity script compilation. The resulting status is compilation feedback only and must not be treated as Play Mode or visual validation. If Unity does not start compiling, select **Compile Unity**; when compilation fails, **Continue Fix** sends the captured error summary to the same thread.
 
