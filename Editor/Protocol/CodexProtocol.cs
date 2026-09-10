@@ -78,7 +78,7 @@ namespace AgentForUnity.Editor.Codex
 
     internal static class CodexProtocol
     {
-        internal static string SerializeRequest(long id, string method, JObject parameters)
+        internal static string SerializeRequest(long id, string method, JToken parameters)
         {
             if (string.IsNullOrWhiteSpace(method))
             {

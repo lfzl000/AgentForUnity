@@ -35,13 +35,13 @@ namespace AgentForUnity.Editor.UI
         private VisualElement _statusDot;
         private Label _connectionState;
         private Label _statusText;
-        private Label _projectSummary;
         private Label _turnState;
         private Label _turnActivityIndicator;
+        private Label _contextUsageLabel;
         private Label _threadValue;
-        private Label _cliPathValue;
         private Label _cliVersionValue;
         private Label _accountValue;
+        private Label _accountUsageValue;
         private Label _projectValue;
         private ScrollView _conversationsScroll;
         private VisualElement _conversationsList;
@@ -50,9 +50,9 @@ namespace AgentForUnity.Editor.UI
         private DropdownField _permissionField;
         private ScrollView _messagesScroll;
         private ScrollView _detailsScroll;
+        private ScrollView _compileDetailsScroll;
         private VisualElement _messagesList;
         private VisualElement _messagesDeliveryList;
-        private VisualElement _diagnosticsList;
         private VisualElement _contextsList;
         private VisualElement _approvalsList;
         private VisualElement _chatApprovalAlert;
@@ -63,8 +63,6 @@ namespace AgentForUnity.Editor.UI
         private Label _approvalAlertTitle;
         private Label _approvalAlertMessage;
         private VisualElement _diffFilesList;
-        private Foldout _connectionFoldout;
-        private Foldout _diagnosticsFoldout;
         private Foldout _approvalsFoldout;
         private Foldout _compileFoldout;
         private Foldout _diffFoldout;
@@ -74,6 +72,7 @@ namespace AgentForUnity.Editor.UI
         private TextField _promptField;
         private Button _reconnectButton;
         private Button _disconnectButton;
+        private Button _diagnosticsButton;
         private Button _newThreadButton;
         private Button _refreshThreadsButton;
         private Button _requestCompileButton;
@@ -92,9 +91,6 @@ namespace AgentForUnity.Editor.UI
         private Button _chatDeclineButton;
         private Button _chatCancelTurnButton;
         private bool _isRefreshing;
-        private bool _layoutInitialized;
-        private bool _isCompact;
-        private int _lastDiagnosticsVersion = -1;
         private int _lastMessageCount;
         private int _lastMessageTextLength;
         private string _lastContextSignature;
@@ -146,10 +142,8 @@ namespace AgentForUnity.Editor.UI
             rootVisualElement.UnregisterCallback<GeometryChangedEvent>(OnGeometryChanged);
             DestroyAttachmentPreviewTextures();
             _messageRows.Clear();
-            _lastDiagnosticsVersion = -1;
             _lastMessageCount = 0;
             _lastMessageTextLength = 0;
-            _layoutInitialized = false;
             _lastContextSignature = null;
             _lastApprovalSignature = null;
             _lastCompilationSignature = null;
@@ -199,13 +193,13 @@ namespace AgentForUnity.Editor.UI
             _statusDot = rootVisualElement.Q<VisualElement>("status-dot");
             _connectionState = rootVisualElement.Q<Label>("connection-state");
             _statusText = rootVisualElement.Q<Label>("status-text");
-            _projectSummary = rootVisualElement.Q<Label>("project-summary");
             _turnState = rootVisualElement.Q<Label>("turn-state");
             _turnActivityIndicator = rootVisualElement.Q<Label>("turn-activity-indicator");
+            _contextUsageLabel = rootVisualElement.Q<Label>("context-usage-label");
             _threadValue = rootVisualElement.Q<Label>("thread-value");
-            _cliPathValue = rootVisualElement.Q<Label>("cli-path-value");
             _cliVersionValue = rootVisualElement.Q<Label>("cli-version-value");
             _accountValue = rootVisualElement.Q<Label>("account-value");
+            _accountUsageValue = rootVisualElement.Q<Label>("account-usage-value");
             _projectValue = rootVisualElement.Q<Label>("project-value");
             _conversationsScroll = rootVisualElement.Q<ScrollView>("conversations-scroll");
             _conversationsList = rootVisualElement.Q<VisualElement>("conversations-list");
@@ -214,9 +208,9 @@ namespace AgentForUnity.Editor.UI
             _permissionField = rootVisualElement.Q<DropdownField>("permission-field");
             _messagesScroll = rootVisualElement.Q<ScrollView>("messages-scroll");
             _detailsScroll = rootVisualElement.Q<ScrollView>("details-scroll");
+            _compileDetailsScroll = rootVisualElement.Q<ScrollView>("compile-details-scroll");
             _messagesList = rootVisualElement.Q<VisualElement>("messages-list");
             _messagesDeliveryList = rootVisualElement.Q<VisualElement>("messages-delivery-list");
-            _diagnosticsList = rootVisualElement.Q<VisualElement>("diagnostics-list");
             _contextsList = rootVisualElement.Q<VisualElement>("contexts-list");
             _approvalsList = rootVisualElement.Q<VisualElement>("approvals-list");
             _chatApprovalAlert = rootVisualElement.Q<VisualElement>("chat-approval-alert");
@@ -227,8 +221,6 @@ namespace AgentForUnity.Editor.UI
             _approvalAlertTitle = rootVisualElement.Q<Label>("approval-alert-title");
             _approvalAlertMessage = rootVisualElement.Q<Label>("approval-alert-message");
             _diffFilesList = rootVisualElement.Q<VisualElement>("diff-files-list");
-            _connectionFoldout = rootVisualElement.Q<Foldout>("connection-foldout");
-            _diagnosticsFoldout = rootVisualElement.Q<Foldout>("diagnostics-foldout");
             _approvalsFoldout = rootVisualElement.Q<Foldout>("approvals-foldout");
             _compileFoldout = rootVisualElement.Q<Foldout>("compile-foldout");
             _diffFoldout = rootVisualElement.Q<Foldout>("diff-foldout");
@@ -238,6 +230,7 @@ namespace AgentForUnity.Editor.UI
             _promptField = rootVisualElement.Q<TextField>("prompt-field");
             _reconnectButton = rootVisualElement.Q<Button>("reconnect-button");
             _disconnectButton = rootVisualElement.Q<Button>("disconnect-button");
+            _diagnosticsButton = rootVisualElement.Q<Button>("diagnostics-button");
             _newThreadButton = rootVisualElement.Q<Button>("new-thread-button");
             _refreshThreadsButton = rootVisualElement.Q<Button>("refresh-threads-button");
             _requestCompileButton = rootVisualElement.Q<Button>("request-compile-button");
@@ -260,13 +253,13 @@ namespace AgentForUnity.Editor.UI
                    && _statusDot != null
                    && _connectionState != null
                    && _statusText != null
-                   && _projectSummary != null
                    && _turnState != null
                    && _turnActivityIndicator != null
+                   && _contextUsageLabel != null
                    && _threadValue != null
-                   && _cliPathValue != null
                    && _cliVersionValue != null
                    && _accountValue != null
+                   && _accountUsageValue != null
                    && _projectValue != null
                    && _conversationsScroll != null
                    && _conversationsList != null
@@ -275,9 +268,9 @@ namespace AgentForUnity.Editor.UI
                    && _permissionField != null
                    && _messagesScroll != null
                    && _detailsScroll != null
+                   && _compileDetailsScroll != null
                    && _messagesList != null
                    && _messagesDeliveryList != null
-                   && _diagnosticsList != null
                    && _contextsList != null
                    && _approvalsList != null
                    && _chatApprovalAlert != null
@@ -288,8 +281,6 @@ namespace AgentForUnity.Editor.UI
                    && _approvalAlertTitle != null
                    && _approvalAlertMessage != null
                    && _diffFilesList != null
-                   && _connectionFoldout != null
-                   && _diagnosticsFoldout != null
                    && _approvalsFoldout != null
                    && _compileFoldout != null
                    && _diffFoldout != null
@@ -299,6 +290,7 @@ namespace AgentForUnity.Editor.UI
                    && _promptField != null
                    && _reconnectButton != null
                    && _disconnectButton != null
+                   && _diagnosticsButton != null
                    && _newThreadButton != null
                    && _refreshThreadsButton != null
                    && _requestCompileButton != null
@@ -325,6 +317,16 @@ namespace AgentForUnity.Editor.UI
             _diffText.isReadOnly = true;
             _messagesScroll.mode = ScrollViewMode.Vertical;
             _messagesScroll.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
+            _detailsScroll.mode = ScrollViewMode.Vertical;
+            _detailsScroll.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
+            var detailsContent = _detailsScroll.contentContainer;
+            detailsContent.style.minWidth = 0;
+            detailsContent.style.width = Length.Percent(100f);
+            detailsContent.style.maxWidth = Length.Percent(100f);
+            _compileDetailsScroll.mode = ScrollViewMode.Vertical;
+            _compileDetailsScroll.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
+            _compileDetailsScroll.contentContainer.style.minWidth = 0;
+            _compileDetailsScroll.contentContainer.style.width = Length.Percent(100f);
             var messagesContent = _messagesScroll.contentContainer;
             messagesContent.style.minWidth = 0;
             messagesContent.style.width = Length.Percent(100f);
@@ -336,6 +338,7 @@ namespace AgentForUnity.Editor.UI
             _promptField.RegisterCallback<KeyDownEvent>(OnPromptKeyDown, TrickleDown.TrickleDown);
             _reconnectButton.clicked += () => _service.Reconnect();
             _disconnectButton.clicked += () => _service.Disconnect();
+            _diagnosticsButton.clicked += AgentForUnityDiagnosticsWindow.Open;
             _newThreadButton.clicked += () => _service.NewThread();
             _refreshThreadsButton.clicked += () => _service.RefreshThreads();
             _requestCompileButton.clicked += () => _service.RequestUnityCompilation();
@@ -376,10 +379,13 @@ namespace AgentForUnity.Editor.UI
                 var connectionState = Convert.ToString(_service.ConnectionState) ?? string.Empty;
                 _connectionState.text = DisplayValue(connectionState, "Not checked");
                 _statusText.text = DisplayValue(_service.StatusText, "Waiting for Codex");
-                _projectSummary.text = ShortProjectName(_service.ProjectRoot);
-                _projectSummary.tooltip = DisplayValue(_service.ProjectRoot, "Project unavailable");
                 _turnState.text = DisplayValue(_service.TurnStateLabel, "Idle");
                 RefreshTurnActivity(_service.IsTurnStarting);
+                _contextUsageLabel.text = _service.ContextUsageLabel;
+                _contextUsageLabel.tooltip = _service.ContextUsageTooltip;
+                _contextUsageLabel.style.display = string.IsNullOrWhiteSpace(_contextUsageLabel.text)
+                    ? DisplayStyle.None
+                    : DisplayStyle.Flex;
                 _requestCompileButton.style.display = _service.TurnState == AgentTurnState.Completed
                     ? DisplayStyle.Flex
                     : DisplayStyle.None;
@@ -388,10 +394,11 @@ namespace AgentForUnity.Editor.UI
                 _threadValue.tooltip = string.IsNullOrEmpty(_service.ThreadId)
                     ? null
                     : "Thread ID: " + _service.ThreadId;
-                SetLabelValue(_cliPathValue, _service.CliPath, "Not found");
                 SetLabelValue(_cliVersionValue, _service.CliVersion, "Unknown");
                 SetLabelValue(_accountValue, _service.AccountLabel, "Unknown");
-                SetLabelValue(_projectValue, _service.ProjectRoot, "Unavailable");
+                SetLabelValue(_accountUsageValue, _service.AccountUsageLabel, "Unavailable");
+                SetLabelValue(_projectValue, ShortProjectName(_service.ProjectRoot), "Unavailable");
+                _projectValue.tooltip = _service.ProjectRoot;
 
                 RefreshConnectionTone(connectionState);
                 RefreshModels(_service.Models, _service.SelectedModelId);
@@ -420,7 +427,6 @@ namespace AgentForUnity.Editor.UI
                 RefreshApprovals(_service.Approvals);
                 RefreshCompilation(_service.Compilation);
                 RefreshDiff(_service.LastDiff);
-                RefreshDiagnostics(_service.Diagnostics, _service.DiagnosticsVersion);
                 UpdateActionAvailability();
             }
             finally
@@ -1222,8 +1228,9 @@ namespace AgentForUnity.Editor.UI
             _chatApprovalTitle.text = pendingCount == 1
                 ? "Permission required"
                 : $"{pendingCount} permissions required";
-            _chatApprovalMessage.text = $"{requestName} is waiting for your decision.";
-            _approvalAlertMessage.text = $"Codex is paused at {requestName}. Review the request below and choose an action.";
+            var action = DescribeApprovalAction(firstPending);
+            _chatApprovalMessage.text = $"{requestName} is waiting for your decision. Current action: {action}";
+            _approvalAlertMessage.text = $"Codex is paused at {requestName}. Current action: {action}";
 
             _approvalsFoldout.SetValueWithoutNotify(true);
             if (_hadPendingApprovals)
@@ -1371,9 +1378,11 @@ namespace AgentForUnity.Editor.UI
             _lastCompilationSignature = signature;
             _compileSummary.text = compilation?.Summary ?? "No compilation result";
             _compileDetails.text = compilation?.Details ?? string.Empty;
-            _compileDetails.style.display = string.IsNullOrWhiteSpace(_compileDetails.text)
+            var detailsDisplay = string.IsNullOrWhiteSpace(_compileDetails.text)
                 ? DisplayStyle.None
                 : DisplayStyle.Flex;
+            _compileDetails.style.display = detailsDisplay;
+            _compileDetailsScroll.style.display = detailsDisplay;
             _continueFixButton.style.display = compilation != null && compilation.CanContinueFix
                 ? DisplayStyle.Flex
                 : DisplayStyle.None;
@@ -1562,34 +1571,23 @@ namespace AgentForUnity.Editor.UI
             host.Add(empty);
         }
 
-        private void RefreshDiagnostics(IReadOnlyList<string> diagnostics, int version)
+        private static string DescribeApprovalAction(AgentApprovalRequest approval)
         {
-            if (_lastDiagnosticsVersion == version)
+            if (approval == null)
             {
-                return;
+                return "details unavailable";
             }
 
-            _lastDiagnosticsVersion = version;
-            _diagnosticsList.Clear();
-            var count = diagnostics == null ? 0 : diagnostics.Count;
-            _diagnosticsFoldout.text = count == 0 ? "Diagnostics" : "Diagnostics (" + count + ")";
-
-            if (count == 0)
-            {
-                var empty = new Label("No diagnostics");
-                empty.AddToClassList("afu-diagnostic");
-                empty.AddToClassList("afu-diagnostic--empty");
-                _diagnosticsList.Add(empty);
-                return;
-            }
-
-            for (var i = 0; i < count; i++)
-            {
-                var diagnostic = new Label(diagnostics[i] ?? string.Empty);
-                diagnostic.enableRichText = false;
-                diagnostic.AddToClassList("afu-diagnostic");
-                _diagnosticsList.Add(diagnostic);
-            }
+            var action = !string.IsNullOrWhiteSpace(approval.Command)
+                ? approval.Command
+                : !string.IsNullOrWhiteSpace(approval.Details)
+                    ? approval.Details
+                    : approval.Reason;
+            action = (action ?? string.Empty).Replace('\r', ' ').Replace('\n', ' ').Trim();
+            const int maximumLength = 220;
+            return action.Length == 0
+                ? "details unavailable"
+                : action.Length <= maximumLength ? action : action.Substring(0, maximumLength) + "…";
         }
 
         private void UpdateActionAvailability()
@@ -1753,14 +1751,6 @@ namespace AgentForUnity.Editor.UI
             var compact = geometryEvent.newRect.width < CompactWidth;
             _windowRoot.EnableInClassList("afu--compact", compact);
 
-            if (compact && (!_layoutInitialized || !_isCompact))
-            {
-                _connectionFoldout.SetValueWithoutNotify(false);
-                _diagnosticsFoldout.SetValueWithoutNotify(false);
-            }
-
-            _isCompact = compact;
-            _layoutInitialized = true;
         }
 
         private static MessageRow CreateMessageRow()
@@ -1869,6 +1859,16 @@ namespace AgentForUnity.Editor.UI
             connection.Add(Element("status-dot", "afu-status-dot"));
             connection.Add(Label("connection-state", "Not checked", "afu-connection__label"));
             identity.Add(connection);
+            var headerMetadata = Element(null, "afu-header__metadata");
+            var cliMetadata = Element(null, "afu-header__metadata-item");
+            cliMetadata.Add(Label(null, "CLI", "afu-header__metadata-caption"));
+            cliMetadata.Add(Label("cli-version-value", string.Empty, "afu-header__metadata-value"));
+            headerMetadata.Add(cliMetadata);
+            var projectMetadata = Element(null, "afu-header__metadata-item");
+            projectMetadata.Add(Label(null, "Project", "afu-header__metadata-caption"));
+            projectMetadata.Add(Label("project-value", string.Empty, "afu-header__metadata-value"));
+            headerMetadata.Add(projectMetadata);
+            identity.Add(headerMetadata);
             header.Add(identity);
 
             var headerActions = Element(null, "afu-header__actions");
@@ -1879,7 +1879,6 @@ namespace AgentForUnity.Editor.UI
 
             var statusBar = Element(null, "afu-status-bar");
             statusBar.Add(Label("status-text", "Checking Codex...", "afu-status-text"));
-            statusBar.Add(Label("project-summary", string.Empty, "afu-project-summary"));
             windowRoot.Add(statusBar);
 
             var workspace = Element(null, "afu-workspace");
@@ -1900,6 +1899,11 @@ namespace AgentForUnity.Editor.UI
             conversationsScroll.AddToClassList("afu-conversations-scroll");
             conversationsScroll.Add(Element("conversations-list", "afu-conversations-list"));
             conversationsPane.Add(conversationsScroll);
+            var accountSummary = Element(null, "afu-account-summary");
+            accountSummary.Add(Label("account-value", string.Empty, "afu-account-summary__value"));
+            accountSummary.Add(Label(null, "Remaining", "afu-account-summary__caption"));
+            accountSummary.Add(Label("account-usage-value", string.Empty, "afu-account-summary__value"));
+            conversationsPane.Add(accountSummary);
             workspace.Add(conversationsPane);
 
             var chatPane = Element(null, "afu-chat-pane");
@@ -1982,6 +1986,8 @@ namespace AgentForUnity.Editor.UI
             permissionField.AddToClassList("afu-select--permission");
             composerSettings.Add(permissionField);
             composerActions.Add(composerSettings);
+            var contextUsage = Label("context-usage-label", string.Empty, "afu-context-usage");
+            composerActions.Add(contextUsage);
             var composerCommands = Element(null, "afu-composer__commands");
             composerCommands.Add(Button("interrupt-button", "Stop", "Interrupt the active turn"));
             var send = Button("send-button", "Send", "Send this prompt to the current thread");
@@ -2009,7 +2015,10 @@ namespace AgentForUnity.Editor.UI
             var compileFoldout = new Foldout { name = "compile-foldout", text = "Unity Compile", value = true };
             compileFoldout.AddToClassList("afu-foldout");
             compileFoldout.Add(Label("compile-summary", "No compilation result", "afu-detail-value"));
-            compileFoldout.Add(Label("compile-details", string.Empty, "afu-compile-details"));
+            var compileDetailsScroll = new ScrollView { name = "compile-details-scroll" };
+            compileDetailsScroll.AddToClassList("afu-compile-details-scroll");
+            compileDetailsScroll.Add(Label("compile-details", string.Empty, "afu-compile-details"));
+            compileFoldout.Add(compileDetailsScroll);
             compileFoldout.Add(Button("continue-fix-button", "Continue Fix", "Send compiler errors to this thread"));
             detailsPane.Add(compileFoldout);
 
@@ -2021,24 +2030,11 @@ namespace AgentForUnity.Editor.UI
             diffFoldout.Add(diffText);
             detailsPane.Add(diffFoldout);
 
-            var connectionFoldout = new Foldout { name = "connection-foldout", text = "Connection", value = true };
-            connectionFoldout.AddToClassList("afu-foldout");
-            connectionFoldout.Add(DetailRow("CLI", "cli-path-value"));
-            connectionFoldout.Add(DetailRow("Version", "cli-version-value"));
-            connectionFoldout.Add(DetailRow("Account", "account-value"));
-            connectionFoldout.Add(DetailRow("Project", "project-value"));
-            detailsPane.Add(connectionFoldout);
-
-            var diagnosticsFoldout = new Foldout { name = "diagnostics-foldout", text = "Diagnostics", value = true };
-            diagnosticsFoldout.AddToClassList("afu-foldout");
-            diagnosticsFoldout.AddToClassList("afu-diagnostics-foldout");
-            var diagnosticsScroll = new ScrollView();
-            diagnosticsScroll.AddToClassList("afu-diagnostics-scroll");
-            diagnosticsScroll.Add(Element("diagnostics-list", "afu-diagnostics-list"));
-            diagnosticsFoldout.Add(diagnosticsScroll);
-            detailsPane.Add(diagnosticsFoldout);
             workspace.Add(detailsPane);
             windowRoot.Add(workspace);
+            var diagnosticsButton = Button("diagnostics-button", "ⓘ", "Open Agent for Unity diagnostics");
+            diagnosticsButton.AddToClassList("afu-diagnostics-launcher");
+            windowRoot.Add(diagnosticsButton);
         }
 
         private void ApplyEssentialFallbackStyles()
@@ -2068,14 +2064,6 @@ namespace AgentForUnity.Editor.UI
             detailsPane.style.width = 280f;
             detailsPane.style.paddingLeft = 8f;
             detailsPane.style.paddingRight = 8f;
-        }
-
-        private static VisualElement DetailRow(string caption, string valueName)
-        {
-            var row = Element(null, "afu-detail-row");
-            row.Add(Label(null, caption, "afu-field-caption"));
-            row.Add(Label(valueName, string.Empty, "afu-detail-value"));
-            return row;
         }
 
         private static VisualElement Element(string name, string className)
@@ -2282,12 +2270,16 @@ namespace AgentForUnity.Editor.UI
             root.Clear();
             _selectedIds.Clear();
             _filteredEntries.Clear();
+            root.style.flexDirection = FlexDirection.Column;
+            root.style.flexGrow = 1f;
+            root.style.minHeight = 0;
             root.style.paddingTop = 10f;
             root.style.paddingRight = 10f;
             root.style.paddingBottom = 10f;
             root.style.paddingLeft = 10f;
 
             var title = new Label("Select Console logs to attach");
+            title.style.flexShrink = 0f;
             title.style.fontSize = 14f;
             title.style.unityFontStyleAndWeight = FontStyle.Bold;
             root.Add(title);
@@ -2296,32 +2288,41 @@ namespace AgentForUnity.Editor.UI
             description.style.marginTop = 3f;
             description.style.marginBottom = 8f;
             description.style.whiteSpace = WhiteSpace.Normal;
+            description.style.flexShrink = 0f;
             root.Add(description);
 
             var filters = new VisualElement();
             filters.style.flexDirection = FlexDirection.Row;
+            filters.style.flexWrap = Wrap.Wrap;
             filters.style.alignItems = Align.FlexEnd;
+            filters.style.flexShrink = 0f;
             _searchField = new TextField("Search message or stack trace");
             _searchField.style.flexGrow = 1f;
+            _searchField.style.minWidth = 200f;
             _searchField.style.marginRight = 8f;
             _searchField.RegisterValueChangedCallback(_ => RefreshFilters());
             filters.Add(_searchField);
             _logTypeField = new DropdownField("Level", LogTypeChoices.ToList(), 0);
             _logTypeField.style.minWidth = 180f;
+            _logTypeField.style.marginBottom = 3f;
             _logTypeField.RegisterValueChangedCallback(_ => RefreshFilters());
             filters.Add(_logTypeField);
             root.Add(filters);
 
             var toolbar = new VisualElement();
             toolbar.style.flexDirection = FlexDirection.Row;
+            toolbar.style.flexWrap = Wrap.Wrap;
             toolbar.style.alignItems = Align.Center;
             toolbar.style.marginTop = 7f;
+            toolbar.style.flexShrink = 0f;
             toolbar.Add(new Button(SelectVisible) { text = "Select Visible" });
             var clearButton = new Button(ClearSelection) { text = "Clear Selection" };
             clearButton.style.marginLeft = 5f;
             toolbar.Add(clearButton);
             _selectionSummary = new Label();
             _selectionSummary.style.flexGrow = 1f;
+            _selectionSummary.style.minWidth = 150f;
+            _selectionSummary.style.marginTop = 3f;
             _selectionSummary.style.unityTextAlign = TextAnchor.MiddleRight;
             toolbar.Add(_selectionSummary);
             root.Add(toolbar);
@@ -2336,6 +2337,8 @@ namespace AgentForUnity.Editor.UI
                 bindItem = BindLogRow
             };
             _listView.style.flexGrow = 1f;
+            _listView.style.flexShrink = 1f;
+            _listView.style.minHeight = 0;
             _listView.style.marginTop = 7f;
             _listView.style.marginBottom = 8f;
             _listView.style.borderTopWidth = 1f;
@@ -2356,6 +2359,7 @@ namespace AgentForUnity.Editor.UI
             root.Add(_emptyLabel);
 
             var actions = new VisualElement();
+            actions.style.flexShrink = 0f;
             actions.style.flexDirection = FlexDirection.Row;
             actions.style.justifyContent = Justify.FlexEnd;
             actions.Add(new Button(Close) { text = "Cancel" });
@@ -2424,7 +2428,7 @@ namespace AgentForUnity.Editor.UI
             _listView.style.display = hasResults ? DisplayStyle.Flex : DisplayStyle.None;
             _emptyLabel.style.display = hasResults ? DisplayStyle.None : DisplayStyle.Flex;
             _emptyLabel.text = _entries.Count == 0
-                ? "No logs have been captured since Agent for Unity loaded."
+                ? "Unity Console is empty."
                 : "No logs match the current filters.";
             RefreshSelectionState();
         }
@@ -2452,7 +2456,7 @@ namespace AgentForUnity.Editor.UI
             var selectedCount = _selectedIds.Count;
             if (_selectionSummary != null)
             {
-                _selectionSummary.text = $"{selectedCount} selected · {_filteredEntries.Count} shown / {_entries.Count} captured";
+                _selectionSummary.text = $"{selectedCount} selected · {_filteredEntries.Count} shown / {_entries.Count} in Console";
             }
 
             _addButton?.SetEnabled(selectedCount > 0);

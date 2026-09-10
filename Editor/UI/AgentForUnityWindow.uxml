@@ -8,6 +8,16 @@
                     <ui:VisualElement name="status-dot" class="afu-status-dot" />
                     <ui:Label name="connection-state" text="Not checked" class="afu-connection__label" />
                 </ui:VisualElement>
+                <ui:VisualElement class="afu-header__metadata">
+                    <ui:VisualElement class="afu-header__metadata-item">
+                        <ui:Label text="CLI" class="afu-header__metadata-caption" />
+                        <ui:Label name="cli-version-value" class="afu-header__metadata-value" />
+                    </ui:VisualElement>
+                    <ui:VisualElement class="afu-header__metadata-item">
+                        <ui:Label text="Project" class="afu-header__metadata-caption" />
+                        <ui:Label name="project-value" class="afu-header__metadata-value" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
             </ui:VisualElement>
             <ui:VisualElement class="afu-header__actions">
                 <ui:Button name="reconnect-button" text="Reconnect" tooltip="Restart connection detection" />
@@ -17,7 +27,6 @@
 
         <ui:VisualElement class="afu-status-bar">
             <ui:Label name="status-text" text="Checking Codex..." class="afu-status-text" />
-            <ui:Label name="project-summary" class="afu-project-summary" />
         </ui:VisualElement>
 
         <ui:VisualElement class="afu-workspace">
@@ -32,6 +41,11 @@
                 <ui:ScrollView name="conversations-scroll" class="afu-conversations-scroll">
                     <ui:VisualElement name="conversations-list" class="afu-conversations-list" />
                 </ui:ScrollView>
+                <ui:VisualElement class="afu-account-summary">
+                    <ui:Label name="account-value" class="afu-account-summary__value" />
+                    <ui:Label text="Remaining" class="afu-account-summary__caption" />
+                    <ui:Label name="account-usage-value" class="afu-account-summary__value" />
+                </ui:VisualElement>
             </ui:VisualElement>
 
             <ui:VisualElement class="afu-chat-pane">
@@ -80,6 +94,7 @@
                             <ui:DropdownField name="reasoning-field" tooltip="Reasoning effort" class="afu-select afu-select--reasoning" />
                             <ui:DropdownField name="permission-field" tooltip="Choose how Codex requests approval for file, command, and network access" class="afu-select afu-select--permission" />
                         </ui:VisualElement>
+                        <ui:Label name="context-usage-label" class="afu-context-usage" />
                         <ui:VisualElement class="afu-composer__commands">
                             <ui:Button name="interrupt-button" text="Stop" tooltip="Interrupt the active turn" />
                             <ui:Button name="send-button" text="Send" tooltip="Send this prompt to the current thread" class="afu-primary-button" />
@@ -99,7 +114,9 @@
 
                 <ui:Foldout name="compile-foldout" text="Unity Compile" value="true" class="afu-foldout">
                     <ui:Label name="compile-summary" class="afu-detail-value" />
-                    <ui:Label name="compile-details" class="afu-compile-details" />
+                    <ui:ScrollView name="compile-details-scroll" class="afu-compile-details-scroll">
+                        <ui:Label name="compile-details" class="afu-compile-details" />
+                    </ui:ScrollView>
                     <ui:Button name="continue-fix-button" text="Continue Fix" />
                 </ui:Foldout>
 
@@ -108,31 +125,8 @@
                     <ui:TextField name="diff-text" multiline="true" class="afu-diff-text" />
                 </ui:Foldout>
 
-                <ui:Foldout name="connection-foldout" text="Connection" value="true" class="afu-foldout">
-                    <ui:VisualElement class="afu-detail-row">
-                        <ui:Label text="CLI" class="afu-field-caption" />
-                        <ui:Label name="cli-path-value" class="afu-detail-value" />
-                    </ui:VisualElement>
-                    <ui:VisualElement class="afu-detail-row">
-                        <ui:Label text="Version" class="afu-field-caption" />
-                        <ui:Label name="cli-version-value" class="afu-detail-value" />
-                    </ui:VisualElement>
-                    <ui:VisualElement class="afu-detail-row">
-                        <ui:Label text="Account" class="afu-field-caption" />
-                        <ui:Label name="account-value" class="afu-detail-value" />
-                    </ui:VisualElement>
-                    <ui:VisualElement class="afu-detail-row">
-                        <ui:Label text="Project" class="afu-field-caption" />
-                        <ui:Label name="project-value" class="afu-detail-value" />
-                    </ui:VisualElement>
-                </ui:Foldout>
-
-                <ui:Foldout name="diagnostics-foldout" text="Diagnostics" value="true" class="afu-foldout afu-diagnostics-foldout">
-                    <ui:ScrollView class="afu-diagnostics-scroll">
-                        <ui:VisualElement name="diagnostics-list" class="afu-diagnostics-list" />
-                    </ui:ScrollView>
-                </ui:Foldout>
             </ui:ScrollView>
         </ui:VisualElement>
+        <ui:Button name="diagnostics-button" text="ⓘ" tooltip="Open Agent for Unity diagnostics" class="afu-diagnostics-launcher" />
     </ui:VisualElement>
 </ui:UXML>

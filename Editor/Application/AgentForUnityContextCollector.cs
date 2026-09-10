@@ -6,6 +6,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Reflection;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -104,6 +105,11 @@ namespace AgentForUnity.Editor.Application
 
         internal static IReadOnlyList<AgentConsoleLogEntry> GetConsoleEntries()
         {
+            if (TryGetUnityConsoleEntries(out var entries))
+            {
+                return entries;
+            }
+
             lock (ConsoleLock)
             {
                 return ConsoleEntries.Reverse().ToList();
@@ -128,7 +134,7 @@ namespace AgentForUnity.Editor.Application
                 throw new InvalidOperationException("Select at least one Console log to attach.");
             }
 
-            var content = new StringBuilder("Selected Unity Console messages captured by Agent for Unity");
+            var content = new StringBuilder("Selected Unity Console messages");
             foreach (var entry in entries)
             {
                 content.AppendLine()
@@ -351,6 +357,104 @@ namespace AgentForUnity.Editor.Application
                     ConsoleEntries.Dequeue();
                 }
             }
+        }
+
+        private static bool TryGetUnityConsoleEntries(out IReadOnlyList<AgentConsoleLogEntry> entries)
+        {
+            entries = null;
+            try
+            {
+                var logEntriesType = FindUnityEditorType("UnityEditor.LogEntries");
+                var logEntryType = FindUnityEditorType("UnityEditor.LogEntry");
+                if (logEntriesType == null || logEntryType == null)
+                {
+                    return false;
+                }
+
+                const BindingFlags staticFlags = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+                const BindingFlags instanceFlags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+                var startGettingEntries = logEntriesType.GetMethod("StartGettingEntries", staticFlags);
+                var endGettingEntries = logEntriesType.GetMethod("EndGettingEntries", staticFlags);
+                var getCount = logEntriesType.GetMethod("GetCount", staticFlags);
+                var getEntry = logEntriesType.GetMethod("GetEntryInternal", staticFlags);
+                var condition = logEntryType.GetField("condition", instanceFlags);
+                var stackTrace = logEntryType.GetField("stackTrace", instanceFlags);
+                var errorNumber = logEntryType.GetField("errorNum", instanceFlags);
+                var mode = logEntryType.GetField("mode", instanceFlags);
+                if (startGettingEntries == null || endGettingEntries == null || getCount == null || getEntry == null ||
+                    condition == null || stackTrace == null)
+                {
+                    return false;
+                }
+
+                startGettingEntries.Invoke(null, null);
+                try
+                {
+                    var count = Convert.ToInt32(getCount.Invoke(null, null));
+                    var snapshot = new List<AgentConsoleLogEntry>(count);
+                    for (var index = 0; index < count; index++)
+                    {
+                        var arguments = new[] { (object)index, Activator.CreateInstance(logEntryType) };
+                        getEntry.Invoke(null, arguments);
+                        var entry = arguments[1];
+                        var message = condition.GetValue(entry) as string;
+                        var trace = stackTrace.GetValue(entry) as string;
+                        var type = GetConsoleLogType(errorNumber?.GetValue(entry), mode?.GetValue(entry));
+                        snapshot.Add(new AgentConsoleLogEntry(
+                            index + 1L,
+                            LimitConsoleText(Redact(message), MaxConsoleMessageCharacters),
+                            LimitConsoleText(Redact(trace), MaxConsoleStackTraceCharacters),
+                            type));
+                    }
+
+                    entries = snapshot.AsEnumerable().Reverse().ToList();
+                    return true;
+                }
+                finally
+                {
+                    endGettingEntries.Invoke(null, null);
+                }
+            }
+            catch (Exception)
+            {
+                entries = null;
+                return false;
+            }
+        }
+
+        private static LogType GetConsoleLogType(object errorNumber, object mode)
+        {
+            if (errorNumber != null)
+            {
+                var numericValue = Convert.ToInt32(errorNumber);
+                if (numericValue >= (int)LogType.Error && numericValue <= (int)LogType.Exception)
+                {
+                    return (LogType)numericValue;
+                }
+            }
+
+            var modeValue = mode == null ? 0 : Convert.ToInt32(mode);
+            const int warningFlags = (1 << 7) | (1 << 9) | (1 << 12);
+            const int exceptionFlags = 1 << 19;
+            const int errorFlags = (1 << 0) | (1 << 4) | (1 << 6) | (1 << 8) | (1 << 11) | (1 << 22);
+            if ((modeValue & exceptionFlags) != 0)
+            {
+                return LogType.Exception;
+            }
+
+            if ((modeValue & errorFlags) != 0)
+            {
+                return LogType.Error;
+            }
+
+            return (modeValue & warningFlags) != 0 ? LogType.Warning : LogType.Log;
+        }
+
+        private static Type FindUnityEditorType(string typeName)
+        {
+            return AppDomain.CurrentDomain.GetAssemblies()
+                .Select(assembly => assembly.GetType(typeName, false))
+                .FirstOrDefault(type => type != null);
         }
 
         private static string LimitConsoleText(string value, int maximumCharacters)

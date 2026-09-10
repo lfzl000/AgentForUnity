@@ -56,7 +56,7 @@ namespace AgentForUnity.Editor.Codex
             return result;
         }
 
-        internal async Task<JObject> SendRequestAsync(string method, JObject parameters)
+        internal async Task<JObject> SendRequestAsync(string method, JToken parameters)
         {
             ThrowIfDisposed();
             var id = ++_nextRequestId;

@@ -27,6 +27,37 @@
     flex-shrink: 1;
 }
 
+.afu-header__metadata {
+    min-width: 0;
+    margin-left: 12px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.afu-header__metadata-item {
+    min-width: 0;
+    max-width: 250px;
+    margin-right: 12px;
+    flex-direction: row;
+    align-items: center;
+}
+
+.afu-header__metadata-caption {
+    margin-right: 4px;
+    font-size: 10px;
+    opacity: 0.58;
+}
+
+.afu-header__metadata-value {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    opacity: 0.78;
+}
+
 .afu-title {
     font-size: 15px;
     -unity-font-style: bold;
@@ -72,6 +103,29 @@
 
 .afu-header__actions > Button {
     margin-left: 5px;
+}
+
+.afu-diagnostics-launcher {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+    width: 24px;
+    min-width: 24px;
+    height: 24px;
+    min-height: 24px;
+    padding: 0;
+    margin: 0;
+    opacity: 0.42;
+    color: rgba(210, 220, 230, 0.90);
+    background-color: rgba(80, 90, 100, 0.18);
+    border-color: rgba(128, 128, 128, 0.35);
+    border-radius: 12px;
+    -unity-font-style: bold;
+}
+
+.afu-diagnostics-launcher:hover {
+    opacity: 0.90;
+    background-color: rgba(45, 132, 210, 0.28);
 }
 
 .afu-primary-button {
@@ -170,6 +224,33 @@
 .afu-conversations-scroll {
     flex-grow: 1;
     min-height: 0;
+}
+
+.afu-account-summary {
+    flex-shrink: 0;
+    max-height: 180px;
+    padding: 8px 10px 10px 10px;
+    border-top-width: 1px;
+    border-top-color: rgba(128, 128, 128, 0.25);
+    background-color: rgba(0, 0, 0, 0.045);
+}
+
+.afu-account-summary__caption {
+    margin-top: 9px;
+    padding-top: 7px;
+    border-top-width: 1px;
+    border-top-color: rgba(128, 128, 128, 0.22);
+    font-size: 10px;
+    opacity: 0.58;
+    -unity-font-style: bold;
+}
+
+.afu-account-summary__value {
+    min-width: 0;
+    margin-top: 1px;
+    white-space: normal;
+    font-size: 12px;
+    opacity: 0.85;
 }
 
 .afu-conversations-list {
@@ -831,6 +912,17 @@
     margin-left: auto;
 }
 
+.afu-context-usage {
+    display: none;
+    min-width: 38px;
+    margin: 0 8px 1px 8px;
+    padding: 2px 6px;
+    white-space: nowrap;
+    font-size: 10px;
+    opacity: 0.75;
+    -unity-text-align: middle-right;
+}
+
 .afu-composer__commands > Button {
     min-width: 64px;
     margin-left: 5px;
@@ -916,6 +1008,20 @@
     font-size: 10px;
 }
 
+.afu-compile-details-scroll {
+    max-height: 180px;
+    min-height: 0;
+    margin: 4px 0;
+    border-width: 1px;
+    border-color: rgba(128, 128, 128, 0.25);
+    background-color: rgba(0, 0, 0, 0.045);
+}
+
+.afu-compile-details-scroll .unity-scroll-view__content-container {
+    min-width: 0;
+    padding: 4px 6px;
+}
+
 .afu-card__actions {
     flex-direction: row;
     flex-wrap: wrap;
@@ -972,27 +1078,24 @@
 }
 
 .afu-detail-row {
+    flex-direction: row;
+    align-items: flex-start;
     padding: 3px 2px;
 }
 
+.afu-detail-row > .afu-field-caption {
+    width: 58px;
+    flex-shrink: 0;
+    margin-right: 6px;
+    padding-top: 1px;
+}
+
 .afu-detail-value {
-    margin-top: 2px;
+    min-width: 0;
+    flex-grow: 1;
+    flex-shrink: 1;
     white-space: normal;
-}
-
-.afu-diagnostics-foldout {
-    flex-grow: 1;
-    min-height: 0;
-}
-
-.afu-diagnostics-foldout > .unity-foldout__content {
-    flex-grow: 1;
-    min-height: 0;
-}
-
-.afu-diagnostics-scroll {
-    flex-grow: 1;
-    min-height: 70px;
+    overflow: visible;
 }
 
 .afu-diagnostic {
@@ -1020,6 +1123,17 @@
     justify-content: flex-end;
 }
 
+.afu-root.afu--compact .afu-header__metadata {
+    width: 100%;
+    margin-top: 4px;
+    margin-left: 0;
+}
+
+.afu-root.afu--compact .afu-header__metadata-item {
+    max-width: none;
+    flex-grow: 1;
+}
+
 .afu-root.afu--compact .afu-status-bar {
     align-items: stretch;
     flex-direction: column;
@@ -1045,6 +1159,10 @@
     border-right-width: 0;
     border-bottom-width: 1px;
     border-bottom-color: rgba(128, 128, 128, 0.25);
+}
+
+.afu-root.afu--compact .afu-account-summary {
+    max-height: 116px;
 }
 
 .afu-root.afu--compact .afu-select {

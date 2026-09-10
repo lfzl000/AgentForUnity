@@ -164,10 +164,23 @@ namespace AgentForUnity.Editor.Application
         internal string Status { get; }
     }
 
+    internal sealed class AgentContextUsageSnapshot
+    {
+        internal AgentContextUsageSnapshot(long inputTokens, long modelContextWindow)
+        {
+            InputTokens = inputTokens;
+            ModelContextWindow = modelContextWindow;
+        }
+
+        internal long InputTokens { get; }
+        internal long ModelContextWindow { get; }
+    }
+
     internal sealed partial class AgentForUnityService : IDisposable
     {
         private const int MaxDiagnostics = 200;
         private const int MaxRestoredMessages = 100;
+        private const int MaxPersistedContextUsageEntries = 100;
         private const int ThreadPageSize = 20;
         private const int MaxAutomaticThreadTitleLength = 48;
         private const int MaxReconnectAttempts = 3;
@@ -186,6 +199,8 @@ namespace AgentForUnity.Editor.Application
         private readonly List<string> _diagnostics = new List<string>();
         private readonly Dictionary<string, AgentChatMessage> _streamingMessages =
             new Dictionary<string, AgentChatMessage>(StringComparer.Ordinal);
+        private readonly Dictionary<string, AgentContextUsageSnapshot> _contextUsageByThreadId =
+            new Dictionary<string, AgentContextUsageSnapshot>(StringComparer.Ordinal);
         private readonly HashSet<string> _reportedUnknownNotifications =
             new HashSet<string>(StringComparer.Ordinal);
         private readonly AgentForUnityPersistedState _persistedState;
@@ -229,6 +244,15 @@ namespace AgentForUnity.Editor.Application
             _turnId = _persistedState.turnId;
             _selectedModelId = _persistedState.selectedModelId;
             _selectedReasoningEffort = _persistedState.selectedReasoningEffort;
+            foreach (var usage in _persistedState.threadContextUsages)
+            {
+                if (!string.IsNullOrEmpty(usage?.threadId) && usage.modelContextWindow > 0)
+                {
+                    _contextUsageByThreadId[usage.threadId] = new AgentContextUsageSnapshot(
+                        usage.inputTokens,
+                        usage.modelContextWindow);
+                }
+            }
             if (!Enum.TryParse(_persistedState.permissionMode, true, out _permissionMode))
             {
                 _permissionMode = AgentPermissionMode.CodexDecides;
@@ -251,6 +275,9 @@ namespace AgentForUnity.Editor.Application
         internal string CliPath { get; private set; }
         internal string CliVersion { get; private set; }
         internal string AccountLabel { get; private set; } = "Unknown";
+        internal string AccountUsageLabel { get; private set; } = "Unavailable";
+        internal string ContextUsageLabel { get; private set; } = string.Empty;
+        internal string ContextUsageTooltip { get; private set; } = string.Empty;
         internal string ProjectRoot => _projectRoot;
         internal string ThreadId => _threadId;
         internal string CurrentThreadTitle => GetThreadTitle(
@@ -826,6 +853,18 @@ namespace AgentForUnity.Editor.Application
                     new JObject { ["refreshToken"] = false });
                 EnsureCurrentClient(newClient, generation);
                 ReadAccount(account);
+                try
+                {
+                    var rateLimits = await newClient.SendRequestAsync(
+                        "account/rateLimits/read",
+                        JValue.CreateNull());
+                    EnsureCurrentClient(newClient, generation);
+                    ReadRateLimits(rateLimits);
+                }
+                catch (Exception)
+                {
+                    AccountUsageLabel = "Unavailable";
+                }
                 await LoadModelsAsync(newClient, generation);
                 EnsureCurrentClient(newClient, generation);
 
@@ -1002,6 +1041,7 @@ namespace AgentForUnity.Editor.Application
             _threadReadOnly = false;
             // Forget an unusable persisted thread so the next prompt can create a fresh one.
             _threadId = null;
+            ClearContextUsage();
             if (IsTurnActive)
             {
                 foreach (var streaming in _streamingMessages.Values)
@@ -1029,10 +1069,91 @@ namespace AgentForUnity.Editor.Application
                 return;
             }
 
-            var type = account.Value<string>("type") ?? "Unknown";
             var email = account.Value<string>("email");
             var plan = account.Value<string>("planType");
-            AccountLabel = string.Join(" - ", new[] { type, email, plan }.Where(value => !string.IsNullOrEmpty(value)));
+            var type = account.Value<string>("type") ?? "Unknown";
+            var userName = string.IsNullOrEmpty(email) ? null : email.Split('@')[0];
+            var planLabel = string.IsNullOrEmpty(plan)
+                ? string.Empty
+                : char.ToUpperInvariant(plan[0]) + plan.Substring(1);
+            AccountLabel = string.IsNullOrEmpty(userName)
+                ? type
+                : string.IsNullOrEmpty(planLabel) ? userName : userName + "\n" + planLabel;
+        }
+
+        private void ReadRateLimits(JObject result)
+        {
+            var buckets = result?["rateLimitsByLimitId"] as JObject;
+            if (buckets == null || !buckets.Properties().Any())
+            {
+                buckets = new JObject { ["Codex"] = result?["rateLimits"] };
+            }
+
+            var bucketProperties = buckets.Properties().ToList();
+            var lines = bucketProperties
+                .Select(property => FormatRateLimit(property.Value as JObject))
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .ToList();
+            AccountUsageLabel = lines.Count == 0 ? "Unavailable" : string.Join("\n", lines);
+        }
+
+        private static string FormatRateLimit(JObject rateLimit)
+        {
+            if (rateLimit == null)
+            {
+                return string.Empty;
+            }
+
+            var windows = new[]
+            {
+                FormatRateLimitWindow(rateLimit["primary"] as JObject),
+                FormatRateLimitWindow(rateLimit["secondary"] as JObject)
+            }.Where(value => !string.IsNullOrEmpty(value)).ToList();
+            return string.Join("\n", windows);
+        }
+
+        private static string FormatRateLimitWindow(JObject window)
+        {
+            var used = window?.Value<int?>("usedPercent");
+            if (!used.HasValue)
+            {
+                return string.Empty;
+            }
+
+            var remaining = Math.Max(0, Math.Min(100, 100 - used.Value));
+            var durationMinutes = window.Value<long?>("windowDurationMins");
+            var resetAt = window.Value<long?>("resetsAt");
+            var label = FormatRateLimitDuration(durationMinutes);
+            if (!resetAt.HasValue)
+            {
+                return label + "  " + remaining + "%";
+            }
+
+            var reset = DateTimeOffset.FromUnixTimeSeconds(resetAt.Value).LocalDateTime;
+            var resetLabel = reset.Date == DateTime.Now.Date ? reset.ToString("HH:mm") : reset.ToString("MMM d");
+            return label + "  " + remaining + "%  " + resetLabel;
+        }
+
+        private static string FormatRateLimitDuration(long? durationMinutes)
+        {
+            if (durationMinutes == 300)
+            {
+                return "5 hours";
+            }
+
+            if (durationMinutes == 10080)
+            {
+                return "1 week";
+            }
+
+            if (!durationMinutes.HasValue)
+            {
+                return "Usage";
+            }
+
+            return durationMinutes.Value % 60 == 0
+                ? (durationMinutes.Value / 60) + " hours"
+                : durationMinutes.Value + " minutes";
         }
 
         private async System.Threading.Tasks.Task StartThreadAsync(
@@ -1059,6 +1180,7 @@ namespace AgentForUnity.Editor.Application
             }
 
             _threadId = threadId;
+            ClearContextUsage();
             _threadAwaitingAutomaticTitle = threadId;
             _turnId = null;
             _threadReady = true;
@@ -1114,6 +1236,7 @@ namespace AgentForUnity.Editor.Application
             }
 
             _threadId = resumedId;
+            RestoreContextUsage(resumedId);
             _threadReady = true;
             _threadReadOnly = false;
             KeepRecentTurnsForDisplay(thread);
@@ -1165,6 +1288,7 @@ namespace AgentForUnity.Editor.Application
             var turns = turnsResult["data"] as JArray ?? new JArray();
             thread["turns"] = new JArray(turns.Reverse().Select(turn => turn.DeepClone()));
             _threadId = threadId;
+            RestoreContextUsage(threadId);
             _threadReady = false;
             _threadReadOnly = true;
             RebuildMessages(thread);
@@ -1484,8 +1608,13 @@ namespace AgentForUnity.Editor.Application
                 case "thread/started":
                 case "thread/status/changed":
                 case "mcpServer/startupStatus/updated":
+                    break;
                 case "thread/tokenUsage/updated":
+                    HandleThreadTokenUsage(message.Params);
+                    break;
                 case "account/rateLimits/updated":
+                    RefreshRateLimitsAsync();
+                    break;
                 case "skills/changed":
                 case "thread/goal/cleared":
                     break;
@@ -1505,6 +1634,87 @@ namespace AgentForUnity.Editor.Application
 
                     break;
             }
+        }
+
+        private async void RefreshRateLimitsAsync()
+        {
+            var client = _client;
+            var generation = _connectionGeneration;
+            if (client == null || !IsCurrentClient(client, generation))
+            {
+                return;
+            }
+
+            try
+            {
+                var rateLimits = await client.SendRequestAsync("account/rateLimits/read", JValue.CreateNull());
+                EnsureCurrentClient(client, generation);
+                ReadRateLimits(rateLimits);
+                MarkChanged();
+            }
+            catch (Exception)
+            {
+                // Rate-limit refresh is informational and must not interrupt an active conversation.
+            }
+        }
+
+        private void HandleThreadTokenUsage(JObject parameters)
+        {
+            if (!MatchesThread(parameters))
+            {
+                return;
+            }
+
+            var threadId = parameters?.Value<string>("threadId") ?? _threadId;
+            var tokenUsage = parameters?["tokenUsage"] as JObject;
+            var contextWindow = tokenUsage?.Value<long?>("modelContextWindow");
+            var inputTokens = (tokenUsage?["last"] as JObject)?.Value<long?>("inputTokens");
+            if (!contextWindow.HasValue || contextWindow.Value <= 0 || !inputTokens.HasValue)
+            {
+                ClearContextUsage();
+                MarkChanged();
+                return;
+            }
+
+            var used = Math.Max(0L, Math.Min(inputTokens.Value, contextWindow.Value));
+            if (!string.IsNullOrEmpty(threadId))
+            {
+                _contextUsageByThreadId[threadId] = new AgentContextUsageSnapshot(used, contextWindow.Value);
+            }
+
+            ApplyContextUsage(used, contextWindow.Value);
+            MarkChanged();
+        }
+
+        private void RestoreContextUsage(string threadId)
+        {
+            if (!string.IsNullOrEmpty(threadId) && _contextUsageByThreadId.TryGetValue(threadId, out var usage))
+            {
+                ApplyContextUsage(usage.InputTokens, usage.ModelContextWindow);
+                return;
+            }
+
+            ClearContextUsage();
+        }
+
+        private void ApplyContextUsage(long inputTokens, long contextWindow)
+        {
+            var used = Math.Max(0L, Math.Min(inputTokens, contextWindow));
+            var usedPercent = (int)Math.Round(used * 100d / contextWindow, MidpointRounding.AwayFromZero);
+            ContextUsageLabel = usedPercent + "%";
+            ContextUsageTooltip = "Context: " + FormatTokenCount(used) + " / " + FormatTokenCount(contextWindow) +
+                                  " tokens (" + usedPercent + "% used)";
+        }
+
+        private void ClearContextUsage()
+        {
+            ContextUsageLabel = string.Empty;
+            ContextUsageTooltip = string.Empty;
+        }
+
+        private static string FormatTokenCount(long tokens)
+        {
+            return tokens >= 1000 ? Math.Round(tokens / 1000d, 1).ToString("0.#") + "k" : tokens.ToString();
         }
 
         private void HandleTurnStarted(JObject parameters)
@@ -2030,6 +2240,15 @@ namespace AgentForUnity.Editor.Application
             _persistedState.selectedModelId = _selectedModelId;
             _persistedState.selectedReasoningEffort = _selectedReasoningEffort;
             _persistedState.permissionMode = _permissionMode.ToString();
+            _persistedState.threadContextUsages = _contextUsageByThreadId
+                .Take(MaxPersistedContextUsageEntries)
+                .Select(pair => new AgentThreadContextUsageState
+                {
+                    threadId = pair.Key,
+                    inputTokens = pair.Value.InputTokens,
+                    modelContextWindow = pair.Value.ModelContextWindow
+                })
+                .ToList();
             SaveM1State();
             try
             {

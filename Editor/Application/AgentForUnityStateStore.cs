@@ -8,7 +8,7 @@ namespace AgentForUnity.Editor.Application
     [Serializable]
     internal sealed class AgentForUnityPersistedState
     {
-        internal const int CurrentSchemaVersion = 3;
+        internal const int CurrentSchemaVersion = 4;
 
         public int schemaVersion = CurrentSchemaVersion;
         public string projectPath;
@@ -27,6 +27,7 @@ namespace AgentForUnity.Editor.Application
         public string compilationSummary;
         public string compilationDetails;
         public string compilationCompletedAt;
+        public List<AgentThreadContextUsageState> threadContextUsages = new List<AgentThreadContextUsageState>();
     }
 
     [Serializable]
@@ -38,6 +39,14 @@ namespace AgentForUnity.Editor.Application
         public string source;
         public string content;
         public string capturedAt;
+    }
+
+    [Serializable]
+    internal sealed class AgentThreadContextUsageState
+    {
+        public string threadId;
+        public long inputTokens;
+        public long modelContextWindow;
     }
 
     internal static class AgentForUnityStateStore
@@ -71,6 +80,7 @@ namespace AgentForUnity.Editor.Application
 
                 state.schemaVersion = AgentForUnityPersistedState.CurrentSchemaVersion;
                 state.contextDrafts = state.contextDrafts ?? new List<AgentContextDraftState>();
+                state.threadContextUsages = state.threadContextUsages ?? new List<AgentThreadContextUsageState>();
 
                 return state;
             }
