@@ -1916,7 +1916,7 @@ namespace AgentForUnity.Editor.UI
         private static IReadOnlyList<string> PermissionChoices => new[]
         {
             T("Ask for Approval", "请求批准"),
-            T("Approve for Me", "帮我批准"),
+            T("Approve for me", "帮我批准"),
             T("Full Access", "完全访问权限")
         };
 

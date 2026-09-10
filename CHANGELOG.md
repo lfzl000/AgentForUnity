@@ -46,11 +46,11 @@ All notable changes to Agent for Unity are documented in this file.
 - Unity compilation status and result cards with same-thread error continuation.
 - Persistence for context drafts, turn Diff, compilation state, and Domain Reload recovery.
 - Mid-turn steering from the message composer.
-- A persistent Ask Approval, Codex Decides, and Full Access permission selector.
+- A persistent Ask for Approval, Approve for me, and Full Access permission selector.
 
 ### Changed
 
-- Turns now apply the selected Codex approval policy and sandbox; Codex Decides remains project-scoped and Full Access is explicitly unrestricted.
+- Turns now apply the selected Codex approval policy and sandbox; Approve for me remains project-scoped and Full Access is explicitly unrestricted.
 - Package documentation and metadata now describe the M1 workflow.
 
 ## [0.1.0] - 2026-09-08

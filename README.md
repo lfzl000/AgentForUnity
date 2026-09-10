@@ -18,7 +18,7 @@ The core workflow provides:
 - attach Project, Selection, recent Console, File, Scene, and Git Diff context;
 - attach clipboard images or the current Game view as removable screenshots with thumbnail previews;
 - approve or decline command, network, file-change, and user-input requests;
-- choose a persistent Ask Approval, Codex Decides, or Full Access permission mode;
+- choose a persistent Ask for Approval, Approve for me, or Full Access permission mode;
 - inspect the current turn's aggregated Diff and open changed files;
 - track Unity compilation and continue compiler-error repair in the same thread;
 - restore persisted context, Diff, compile state, and the selected thread after Domain Reload;
@@ -40,7 +40,7 @@ To install the current `main` branch from Git, use **Window > Package Manager > 
 https://github.com/lfzl000/AgentForUnity.git#main
 ```
 
-The GitHub repository is private, so Git must be authenticated for the current user before Unity can install it.
+The GitHub repository is public, so Unity can install it directly from the Git URL.
 
 After installation, open **Window > Agent for Unity**. The package version should show as `0.3.0` in Package Manager.
 
@@ -66,8 +66,8 @@ An active conversation keeps Unity's assembly reload locked so its App Server pr
 
 ## Permission Modes
 
-- **Ask Approval**: uses Codex's `on-request` approval policy with a user reviewer and a writable sandbox limited to the Unity project.
-- **Codex Decides**: uses `on-request` approval with that project-scoped writable sandbox and network access disabled by default.
+- **Ask for Approval**: uses Codex's `on-request` approval policy with a user reviewer and a writable sandbox limited to the Unity project.
+- **Approve for me**: uses `on-request` approval with automatic review, that project-scoped writable sandbox, and network access disabled by default.
 - **Full Access**: uses `never` approval with Codex's `danger-full-access` sandbox. This mode is unrestricted.
 
 Codex owns authentication and conversation history. Agent for Unity does not write API keys, OAuth tokens, or message history to `Assets`. Reload state, redacted context drafts, turn Diff, and compilation state are stored under `Library/AgentForUnity/`.
