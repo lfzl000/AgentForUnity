@@ -53,7 +53,7 @@ namespace AgentForUnity.Editor.Application
         internal AgentCompilationResult Compilation => _compilation;
         internal string LastDiff => _lastDiff;
         internal string LastDiffTurnId => _lastDiffTurnId;
-        internal bool HasScreenshotAttachments => _contexts.Any(item => item.Kind == AgentContextKind.Screenshot);
+        internal bool HasContextAttachments => _contexts.Count > 0;
         internal bool CanSteer => ConnectionState == AgentConnectionState.Ready &&
                                   TurnState == AgentTurnState.Running &&
                                   !string.IsNullOrEmpty(_threadId) &&
@@ -65,6 +65,9 @@ namespace AgentForUnity.Editor.Application
 
         internal bool TryAddContext(AgentContextKind kind, string path, out string error)
         {
+            if (kind == AgentContextKind.Selection)
+                return TryAddSelectionContext(Selection.objects, out error);
+
             error = null;
             try
             {
@@ -73,9 +76,6 @@ namespace AgentForUnity.Editor.Application
                 {
                     case AgentContextKind.Project:
                         item = AgentForUnityContextCollector.CaptureProject(_projectRoot, false);
-                        break;
-                    case AgentContextKind.Selection:
-                        item = AgentForUnityContextCollector.CaptureSelection(_projectRoot);
                         break;
                     case AgentContextKind.Console:
                         throw new InvalidOperationException("Choose specific Console logs before attaching them.");
@@ -97,6 +97,33 @@ namespace AgentForUnity.Editor.Application
                 }
 
                 AddOrReplaceContext(item);
+                SaveState();
+                MarkChanged();
+                return true;
+            }
+            catch (Exception exception)
+            {
+                error = exception.Message;
+                AddDiagnostic(exception.Message);
+                return false;
+            }
+        }
+
+        internal bool TryAddSelectionContext(UnityEngine.Object[] objects, out string error)
+        {
+            error = null;
+            try
+            {
+                var selection = (objects ?? Array.Empty<UnityEngine.Object>())
+                    .Where(item => item != null).Distinct().ToArray();
+                if (selection.Length == 0)
+                    throw new InvalidOperationException("Nothing is selected in the Unity Editor.");
+
+                // Capture all items before mutating the draft so a capture failure cannot partially attach it.
+                var items = selection.Select(item => AgentForUnityContextCollector.CaptureSelection(
+                    _projectRoot, new[] { item })).ToList();
+                foreach (var item in items)
+                    AddOrReplaceContext(item);
                 SaveState();
                 MarkChanged();
                 return true;
@@ -194,11 +221,21 @@ namespace AgentForUnity.Editor.Application
         internal async void Steer(string prompt)
         {
             prompt = prompt?.Trim();
-            var submittedScreenshots = _contexts
-                .Where(item => item.Kind == AgentContextKind.Screenshot)
-                .ToList();
-            if (!CanSteer || (string.IsNullOrEmpty(prompt) && submittedScreenshots.Count == 0))
+            if (!CanSteer || (string.IsNullOrEmpty(prompt) && !HasContextAttachments))
             {
+                return;
+            }
+
+            IReadOnlyList<AgentContextItem> submittedContexts;
+            try
+            {
+                submittedContexts = PrepareContextsForTurn();
+            }
+            catch (Exception exception)
+            {
+                AddDiagnostic(exception.Message);
+                StatusText = "Could not prepare context";
+                MarkChanged();
                 return;
             }
 
@@ -209,7 +246,7 @@ namespace AgentForUnity.Editor.Application
             _messages.Add(new AgentChatMessage(
                 AgentChatRole.User,
                 prompt,
-                attachments: CreateChatAttachments(submittedScreenshots),
+                attachments: CreateChatAttachments(submittedContexts),
                 turnId: turnId));
             MarkChanged();
             try
@@ -220,12 +257,12 @@ namespace AgentForUnity.Editor.Application
                     ["expectedTurnId"] = turnId,
                     ["input"] = BuildTurnInput(
                         prompt,
-                        submittedScreenshots,
+                        submittedContexts,
                         EnterPlayModeReloadsDomain())
                 });
                 if (IsCurrentTurnOperation(client, generation, threadId, turnId))
                 {
-                    CompleteContextSubmission(submittedScreenshots);
+                    CompleteContextSubmission(submittedContexts);
                     SaveState();
                     StatusText = "Steering added";
                     MarkChanged();
@@ -838,6 +875,8 @@ namespace AgentForUnity.Editor.Application
 
             _contexts.RemoveAll(existing => existing.Kind == item.Kind &&
                                             item.Kind != AgentContextKind.File &&
+                                            item.Kind != AgentContextKind.Selection &&
+                                            item.Kind != AgentContextKind.Console &&
                                             item.Kind != AgentContextKind.Screenshot);
             _contexts.Add(item);
         }

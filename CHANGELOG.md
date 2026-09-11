@@ -6,6 +6,7 @@ All notable changes to Agent for Unity are documented in this file.
 
 ### Fixed
 
+- Console context menus now receive mouse events from the actual IMGUI host in Unity 2022.3 and Unity 6, instead of attaching to the separate UI Toolkit content root.
 - Prevented entering Play Mode from triggering Domain Reload while a conversation is active, avoiding termination of its App Server process and an unrecoverable in-flight turn.
 - Active turns now receive a stable-protocol Play Mode restriction when Reload Domain is enabled, so the final response explains why required runtime validation was skipped without requiring experimental App Server capabilities.
 - Installed official Pipeline workflows now request approved local execution on their first localhost call instead of reporting an expected restricted-sandbox failure first.
@@ -14,6 +15,7 @@ All notable changes to Agent for Unity are documented in this file.
 
 ### Added
 
+- **添加到 AgentForUnity** context menus for Hierarchy objects, Project assets, Inspector components, and selected Console logs, with removable context attachments and support for successive additions and mid-turn steering.
 - Git availability notices that hide Git controls when the project has no repository or Git cannot be used, and restore them after detection succeeds.
 - Large Commit All changes now generate messages from bounded change statistics and file metadata instead of timing out while reading a multi-megabyte patch.
 - Background commit-message generation now uses `gpt-5.6-luna` with low reasoning effort, independently of chat settings.

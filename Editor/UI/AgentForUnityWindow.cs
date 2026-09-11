@@ -120,6 +120,14 @@ namespace AgentForUnity.Editor.UI
             window.Show();
         }
 
+        internal static void OpenForContext()
+        {
+            Open();
+            var window = GetWindow<AgentForUnityWindow>();
+            window.Focus();
+            window.rootVisualElement.schedule.Execute(() => window._promptField?.Focus());
+        }
+
         private void OnEnable()
         {
             titleContent = new GUIContent("Agent for Unity");
@@ -1623,14 +1631,14 @@ namespace AgentForUnity.Editor.UI
             _gitDetails.tooltip = _service.GitDetails;
             _gitStatus.style.display = string.IsNullOrEmpty(_service.GitStatus) ? DisplayStyle.None : DisplayStyle.Flex;
             _gitDetails.style.display = string.IsNullOrEmpty(_service.GitDetails) ? DisplayStyle.None : DisplayStyle.Flex;
-            var hasScreenshot = _service.HasScreenshotAttachments;
+            var hasContext = _service.HasContextAttachments;
             _sendButton.text = _service.CanSteer ? T("Steer", "引导") : T("Send", "发送");
             _sendButton.tooltip = _service.ToolingBlocksNewTurns
                 ? T(
                     "Wait for tooling setup, or finish or cancel the backend switch before starting a new turn.",
                     "请等待工具配置完成，或先完成/取消能力来源切换，再开始新一轮对话。")
                 : T("Send this prompt to the current thread", "发送到当前对话");
-            _sendButton.SetEnabled((_service.CanSend || _service.CanSteer) && (hasPrompt || hasScreenshot));
+            _sendButton.SetEnabled((_service.CanSend || _service.CanSteer) && (hasPrompt || hasContext));
             _interruptButton.SetEnabled(_service.CanInterrupt);
             _disconnectButton.SetEnabled(_service.CanDisconnect && !_service.GitBusy);
             _reconnectButton.SetEnabled(!_service.GitBusy);
@@ -1889,7 +1897,7 @@ namespace AgentForUnity.Editor.UI
         {
             var prompt = _promptField.value == null ? string.Empty : _promptField.value.Trim();
             if ((!_service.CanSend && !_service.CanSteer) ||
-                (prompt.Length == 0 && !_service.HasScreenshotAttachments))
+                (prompt.Length == 0 && !_service.HasContextAttachments))
             {
                 return;
             }

@@ -80,7 +80,11 @@ namespace AgentForUnity.Editor.Application
 
         internal static AgentContextItem CaptureSelection(string projectRoot)
         {
-            var selection = Selection.objects;
+            return CaptureSelection(projectRoot, Selection.objects);
+        }
+
+        internal static AgentContextItem CaptureSelection(string projectRoot, Object[] selection)
+        {
             if (selection == null || selection.Length == 0)
             {
                 throw new InvalidOperationException("Nothing is selected in the Unity Editor.");
@@ -145,7 +149,12 @@ namespace AgentForUnity.Editor.Application
                 }
             }
 
-            return Create(AgentContextKind.Console, $"Console ({entries.Count} selected)", "Unity Console", content.ToString(), false);
+            var firstLine = Redact(entries[0].Message).Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .FirstOrDefault() ?? entries[0].Type.ToString();
+            if (firstLine.Length > 60)
+                firstLine = firstLine.Substring(0, 60) + "…";
+            var label = "Console · " + firstLine + (entries.Count > 1 ? $" +{entries.Count - 1}" : string.Empty);
+            return Create(AgentContextKind.Console, label, "Unity Console", content.ToString(), false);
         }
 
         internal static AgentContextItem CaptureFile(string projectRoot, string absolutePath)
@@ -444,6 +453,12 @@ namespace AgentForUnity.Editor.Application
             }
 
             output.AppendLine().Append("- ").Append(selected.name).Append(" (").Append(selected.GetType().FullName).Append(')');
+#if UNITY_6000_3_OR_NEWER
+            output.AppendLine().Append("  Entity ID: ").Append(selected.GetEntityId().ToString());
+#else
+            output.AppendLine().Append("  Instance ID: ").Append(selected.GetInstanceID());
+#endif
+            output.AppendLine().Append("  Global Object ID: ").Append(GlobalObjectId.GetGlobalObjectIdSlow(selected));
             var assetPath = AssetDatabase.GetAssetPath(selected);
             if (!string.IsNullOrEmpty(assetPath))
             {
@@ -463,6 +478,13 @@ namespace AgentForUnity.Editor.Application
             }
 
             output.AppendLine().Append("  Hierarchy: ").Append(GetHierarchyPath(gameObject.transform));
+            if (gameObject.scene.IsValid())
+            {
+                output.AppendLine().Append("  Scene: ").Append(string.IsNullOrEmpty(gameObject.scene.path)
+                    ? gameObject.scene.name + " (unsaved)"
+                    : gameObject.scene.path);
+            }
+            output.AppendLine().Append("  Active: ").Append(gameObject.activeSelf);
             output.AppendLine().Append("  Components: ").Append(string.Join(", ", gameObject.GetComponents<Component>()
                 .Where(value => value != null)
                 .Select(value => value.GetType().FullName)));
@@ -526,36 +548,25 @@ namespace AgentForUnity.Editor.Application
                 const BindingFlags instanceFlags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
                 var startGettingEntries = logEntriesType.GetMethod("StartGettingEntries", staticFlags);
                 var endGettingEntries = logEntriesType.GetMethod("EndGettingEntries", staticFlags);
-                var getCount = logEntriesType.GetMethod("GetCount", staticFlags);
                 var getEntry = logEntriesType.GetMethod("GetEntryInternal", staticFlags);
-                var condition = logEntryType.GetField("condition", instanceFlags);
-                var stackTrace = logEntryType.GetField("stackTrace", instanceFlags);
-                var errorNumber = logEntryType.GetField("errorNum", instanceFlags);
-                var mode = logEntryType.GetField("mode", instanceFlags);
-                if (startGettingEntries == null || endGettingEntries == null || getCount == null || getEntry == null ||
-                    condition == null || stackTrace == null)
+                if (startGettingEntries == null || endGettingEntries == null || getEntry == null ||
+                    (logEntryType.GetField("message", instanceFlags) == null &&
+                     logEntryType.GetField("condition", instanceFlags) == null))
                 {
                     return false;
                 }
 
-                startGettingEntries.Invoke(null, null);
+                var entryCount = startGettingEntries.Invoke(null, null);
                 try
                 {
-                    var count = Convert.ToInt32(getCount.Invoke(null, null));
-                    var snapshot = new List<AgentConsoleLogEntry>(count);
-                    for (var index = 0; index < count; index++)
+                    // This count uses the same filtered/collapsed rows as GetEntryInternal.
+                    var count = Convert.ToInt32(entryCount);
+                    var snapshot = new List<AgentConsoleLogEntry>(Math.Min(count, MaxConsoleEntries));
+                    for (var index = Math.Max(0, count - MaxConsoleEntries); index < count; index++)
                     {
                         var arguments = new[] { (object)index, Activator.CreateInstance(logEntryType) };
-                        getEntry.Invoke(null, arguments);
-                        var entry = arguments[1];
-                        var message = condition.GetValue(entry) as string;
-                        var trace = stackTrace.GetValue(entry) as string;
-                        var type = GetConsoleLogType(errorNumber?.GetValue(entry), mode?.GetValue(entry));
-                        snapshot.Add(new AgentConsoleLogEntry(
-                            index + 1L,
-                            LimitConsoleText(Redact(message), MaxConsoleMessageCharacters),
-                            LimitConsoleText(Redact(trace), MaxConsoleStackTraceCharacters),
-                            type));
+                        if (getEntry.Invoke(null, arguments) is bool found && found)
+                            snapshot.Add(ReadUnityConsoleEntry(arguments[1], index + 1L));
                     }
 
                     entries = snapshot.AsEnumerable().Reverse().ToList();
@@ -573,24 +584,40 @@ namespace AgentForUnity.Editor.Application
             }
         }
 
-        private static LogType GetConsoleLogType(object errorNumber, object mode)
+        internal static AgentConsoleLogEntry ReadUnityConsoleEntry(object entry, long id)
         {
-            if (errorNumber != null)
+            const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            var type = entry.GetType();
+            var message = (type.GetField("message", flags) ?? type.GetField("condition", flags))?.GetValue(entry) as string;
+            var trace = type.GetField("stackTrace", flags)?.GetValue(entry) as string;
+            var stackStart = type.GetField("callstackTextStartUTF16", flags)?.GetValue(entry);
+            if (trace == null && message != null && stackStart is int start && start > 0 && start < message.Length)
             {
-                var numericValue = Convert.ToInt32(errorNumber);
-                if (numericValue >= (int)LogType.Error && numericValue <= (int)LogType.Exception)
-                {
-                    return (LogType)numericValue;
-                }
+                trace = message.Substring(start);
+                message = message.Substring(0, start).TrimEnd();
             }
 
+            return new AgentConsoleLogEntry(id,
+                LimitConsoleText(Redact(message), MaxConsoleMessageCharacters),
+                LimitConsoleText(Redact(trace), MaxConsoleStackTraceCharacters),
+                GetConsoleLogType(type.GetField("mode", flags)?.GetValue(entry)));
+        }
+
+        private static LogType GetConsoleLogType(object mode)
+        {
             var modeValue = mode == null ? 0 : Convert.ToInt32(mode);
             const int warningFlags = (1 << 7) | (1 << 9) | (1 << 12);
-            const int exceptionFlags = 1 << 19;
-            const int errorFlags = (1 << 0) | (1 << 4) | (1 << 6) | (1 << 8) | (1 << 11) | (1 << 22);
+            const int exceptionFlags = 1 << 17;
+            const int assertionFlags = (1 << 1) | (1 << 21);
+            const int errorFlags = (1 << 0) | (1 << 4) | (1 << 6) | (1 << 8) | (1 << 11);
             if ((modeValue & exceptionFlags) != 0)
             {
                 return LogType.Exception;
+            }
+
+            if ((modeValue & assertionFlags) != 0)
+            {
+                return LogType.Assert;
             }
 
             if ((modeValue & errorFlags) != 0)

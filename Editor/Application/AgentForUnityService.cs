@@ -581,8 +581,21 @@ namespace AgentForUnity.Editor.Application
         internal async void Send(string prompt)
         {
             prompt = prompt?.Trim();
-            if (!CanSend || (string.IsNullOrEmpty(prompt) && !HasScreenshotAttachments))
+            if (!CanSend || (string.IsNullOrEmpty(prompt) && !HasContextAttachments))
             {
+                return;
+            }
+
+            IReadOnlyList<AgentContextItem> submittedContexts;
+            try
+            {
+                submittedContexts = PrepareContextsForTurn();
+            }
+            catch (Exception exception)
+            {
+                AddDiagnostic(exception.Message);
+                StatusText = "Could not prepare context";
+                MarkChanged();
                 return;
             }
 
@@ -592,7 +605,6 @@ namespace AgentForUnity.Editor.Application
             _turnStartPending = true;
             _turnStartedAtUtc = DateTime.UtcNow;
             StatusText = "Preparing turn";
-            var submittedContexts = PrepareContextsForTurn();
             _pendingUserMessage = new AgentChatMessage(
                 AgentChatRole.User,
                 prompt,
