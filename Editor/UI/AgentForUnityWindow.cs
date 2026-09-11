@@ -38,6 +38,7 @@ namespace AgentForUnity.Editor.UI
         private Label _accountValue;
         private Label _accountUsageValue;
         private Label _projectValue;
+        private Button _checkPackageUpdateButton;
         private Label _packageUpdateStatus;
         private Button _packageUpdateButton;
         private ScrollView _conversationsScroll;
@@ -225,6 +226,7 @@ namespace AgentForUnity.Editor.UI
             _accountValue = rootVisualElement.Q<Label>("account-value");
             _accountUsageValue = rootVisualElement.Q<Label>("account-usage-value");
             _projectValue = rootVisualElement.Q<Label>("project-value");
+            _checkPackageUpdateButton = rootVisualElement.Q<Button>("check-package-update-button");
             _packageUpdateStatus = rootVisualElement.Q<Label>("package-update-status");
             _packageUpdateButton = rootVisualElement.Q<Button>("package-update-button");
             _conversationsScroll = rootVisualElement.Q<ScrollView>("conversations-scroll");
@@ -298,6 +300,7 @@ namespace AgentForUnity.Editor.UI
                    && _accountValue != null
                    && _accountUsageValue != null
                    && _projectValue != null
+                   && _checkPackageUpdateButton != null
                    && _packageUpdateStatus != null
                    && _packageUpdateButton != null
                    && _conversationsScroll != null
@@ -384,6 +387,7 @@ namespace AgentForUnity.Editor.UI
             _promptField.RegisterCallback<KeyDownEvent>(OnPromptKeyDown, TrickleDown.TrickleDown);
             _reconnectButton.clicked += () => _service.Reconnect();
             _disconnectButton.clicked += () => _service.Disconnect();
+            _checkPackageUpdateButton.clicked += () => _service.CheckForPackageUpdate();
             _packageUpdateButton.clicked += () => _service.UpdatePackage();
             _diagnosticsButton.clicked += AgentForUnityDiagnosticsWindow.Open;
             _newThreadButton.clicked += () => _service.NewThread();
@@ -1752,10 +1756,10 @@ namespace AgentForUnity.Editor.UI
             _packageUpdateStatus.text = status;
             _packageUpdateStatus.tooltip = _service.PackageUpdateStatus;
             _packageUpdateStatus.EnableInClassList("afu-package-update-status--error", _service.PackageUpdateFailed);
-            _packageUpdateButton.style.display = _service.PackageUpdateAvailable || _service.PackageUpdateChecking
-                ? DisplayStyle.Flex
-                : DisplayStyle.None;
-            _packageUpdateButton.text = _service.PackageUpdateChecking ? T("Checking...", "检查中…") : T("Update", "更新");
+            _checkPackageUpdateButton.tooltip = T("Check for Agent for Unity updates", "检查 Agent for Unity 更新");
+            _checkPackageUpdateButton.SetEnabled(!_service.PackageUpdateChecking && !_service.PackageUpdating);
+            _packageUpdateButton.style.display = _service.PackageUpdateAvailable ? DisplayStyle.Flex : DisplayStyle.None;
+            _packageUpdateButton.text = T("Update", "更新");
             _packageUpdateButton.tooltip = _service.CanUpdatePackage
                 ? T(
                     "Update Agent for Unity using a fast-forward-only Git pull. Local changes must be committed or stashed first.",
@@ -2594,6 +2598,9 @@ namespace AgentForUnity.Editor.UI
             header.Add(identity);
 
             var headerActions = Element(null, "afu-header__actions");
+            var checkPackageUpdate = Button("check-package-update-button", "↻", "Check for Agent for Unity updates");
+            checkPackageUpdate.AddToClassList("afu-package-update-check");
+            headerActions.Add(checkPackageUpdate);
             headerActions.Add(Label("package-update-status", string.Empty, "afu-package-update-status"));
             var packageUpdate = Button("package-update-button", "Update", "Update Agent for Unity when a newer version is available");
             packageUpdate.AddToClassList("afu-package-update-button");

@@ -1341,6 +1341,15 @@
     font-size: 10px;
 }
 
+.afu-package-update-check {
+    width: 24px;
+    min-width: 24px;
+    height: 22px;
+    min-height: 22px;
+    padding: 0;
+    font-size: 14px;
+}
+
 .afu-detail-row {
     flex-direction: row;
     align-items: flex-start;
