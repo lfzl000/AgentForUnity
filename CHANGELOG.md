@@ -2,6 +2,16 @@
 
 All notable changes to Agent for Unity are documented in this file.
 
+## [0.6.0] - 2026-09-11
+
+### Added
+
+- A manual update-check button beside the package update status.
+
+### Fixed
+
+- Package updates are no longer blocked by ordinary Unity Tooling refreshes, and disabled update buttons now identify the actual blocking operation.
+
 ## [0.5.0] - 2026-09-11
 
 ### Added
