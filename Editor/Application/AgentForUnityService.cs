@@ -2297,7 +2297,9 @@ namespace AgentForUnity.Editor.Application
 
         private string BuildDeveloperInstructions()
         {
-            return UnityCompilationDeveloperInstructions + "\n\n" + GetUnityToolingDeveloperInstructions();
+            return UnityCompilationDeveloperInstructions + "\n\n" +
+                   UnityToolingInstaller.AgentsGuideInstruction + "\n\n" +
+                   GetUnityToolingDeveloperInstructions();
         }
 
         private bool SaveState()

@@ -1223,11 +1223,15 @@
 
 .afu-tooling__body {
     min-width: 0;
+    flex-basis: 0;
     flex-grow: 1;
     flex-shrink: 1;
+    overflow: hidden;
 }
 
 .afu-tooling__caption {
+    min-width: 0;
+    white-space: normal;
     font-size: 11px;
     -unity-font-style: bold;
 }

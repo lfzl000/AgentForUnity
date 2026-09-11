@@ -97,6 +97,7 @@ namespace AgentForUnity.Editor.Application
         private bool _toolingProjectSetupComplete;
         private bool _toolingConnectionChecking;
         private bool _toolingConnectionReachable;
+        private bool _toolingRefreshPending;
         private int _unityToolingOperation;
         private int _toolingBackendGeneration;
         private double _nextUnityToolingRefreshTime;
@@ -261,15 +262,21 @@ namespace AgentForUnity.Editor.Application
 
         internal async void RefreshUnityTooling()
         {
-            if (_disposed ||
-                _unityToolingBusy ||
-                IsTurnStarting ||
-                _operationInProgress ||
-                UnityEditorBusyForTooling)
+            if (_disposed)
             {
                 return;
             }
 
+            if (_unityToolingBusy ||
+                IsTurnStarting ||
+                _operationInProgress ||
+                UnityEditorBusyForTooling)
+            {
+                _toolingRefreshPending = true;
+                return;
+            }
+
+            _toolingRefreshPending = false;
             ReloadToolingSetupState();
             var backend = _requestedToolingBackend;
             var generation = _toolingBackendGeneration;
@@ -716,6 +723,13 @@ namespace AgentForUnity.Editor.Application
             if (!_unityToolingBusy && now >= _nextUnityToolingRefreshTime)
             {
                 _nextUnityToolingRefreshTime = now + UnityToolingRefreshSeconds;
+                if (_toolingRefreshPending &&
+                    !IsTurnStarting &&
+                    !_operationInProgress &&
+                    !UnityEditorBusyForTooling)
+                {
+                    RefreshUnityTooling();
+                }
                 ResumePendingUnityToolingSetup();
             }
 
@@ -984,7 +998,7 @@ namespace AgentForUnity.Editor.Application
         private const int UnityCliLoopMinimumMajorVersion = 3;
         private const string GuideBeginMarker = "<!-- AGENT_FOR_UNITY_TOOLING_BEGIN -->";
         private const string GuideEndMarker = "<!-- AGENT_FOR_UNITY_TOOLING_END -->";
-        private const string AgentsGuideInstruction =
+        internal const string AgentsGuideInstruction =
             "When performing Unity development, you must read and follow UNITY-GUIDE.md.";
         private const string PipelineLocalExecutionInstruction =
             "For every `unity pipeline` or `unity command` invocation that connects to an Editor or Player on localhost, request the approved local execution context on the first attempt. Do not probe the loopback endpoint from the restricted sandbox first. Use narrow reusable command-prefix approval rules such as `unity pipeline list` and `unity command` when the host supports them.";
@@ -1219,7 +1233,6 @@ namespace AgentForUnity.Editor.Application
                 }
             }
 
-            EnsureAgentsInstruction(Path.Combine(projectRoot, "AGENTS.md"));
         }
 
         internal static ToolingPackageInstallation FindPackage(
@@ -1282,12 +1295,6 @@ namespace AgentForUnity.Editor.Application
         {
             try
             {
-                var agentsPath = Path.Combine(projectRoot, "AGENTS.md");
-                if (!AgentsInstructionExists(agentsPath))
-                {
-                    return false;
-                }
-
                 var skillsRoot = Path.Combine(projectRoot, ".agents", "skills");
                 if (backend == UnityToolingBackend.OfficialPipeline)
                 {
@@ -1789,24 +1796,6 @@ namespace AgentForUnity.Editor.Application
             }
             builder.Append(GuideEndMarker);
             return builder.ToString();
-        }
-
-        private static void EnsureAgentsInstruction(string path)
-        {
-            var existing = File.Exists(path) ? File.ReadAllText(path) : string.Empty;
-            if (AgentsInstructionExists(path))
-            {
-                return;
-            }
-
-            var prefix = string.IsNullOrWhiteSpace(existing) ? string.Empty : existing.TrimEnd() + "\n\n";
-            WriteTextAtomically(path, prefix + AgentsGuideInstruction + "\n");
-        }
-
-        private static bool AgentsInstructionExists(string path)
-        {
-            return File.Exists(path) && File.ReadLines(path)
-                .Any(line => string.Equals(line.Trim(), AgentsGuideInstruction, StringComparison.Ordinal));
         }
 
         private static void EnsurePipelineLocalExecutionInstruction(string path)
