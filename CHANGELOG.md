@@ -2,7 +2,7 @@
 
 All notable changes to Agent for Unity are documented in this file.
 
-## [Unreleased]
+## [0.7.1] - 2026-09-11
 
 ### Fixed
 
