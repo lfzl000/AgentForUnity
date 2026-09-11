@@ -20,6 +20,8 @@
                 </ui:VisualElement>
             </ui:VisualElement>
             <ui:VisualElement class="afu-header__actions">
+                <ui:Label name="package-update-status" class="afu-package-update-status" />
+                <ui:Button name="package-update-button" text="Update" tooltip="Update Agent for Unity when a newer version is available" class="afu-package-update-button" />
                 <ui:DropdownField name="language-field" tooltip="Interface language" class="afu-select afu-select--language" />
                 <ui:Button name="reconnect-button" text="Reconnect" tooltip="Restart connection detection" />
                 <ui:Button name="disconnect-button" text="Disconnect" tooltip="Stop the Codex App Server connection" />

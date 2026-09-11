@@ -2,6 +2,12 @@
 
 All notable changes to Agent for Unity are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Checks the Agent for Unity GitHub package manifest when the window opens and offers a one-click, fast-forward-only update for clean local Git checkouts.
+
 ## [0.4.0] - 2026-09-11
 
 ### Fixed

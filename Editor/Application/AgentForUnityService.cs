@@ -302,12 +302,14 @@ namespace AgentForUnity.Editor.Application
         internal int DiagnosticsVersion => _diagnosticsVersion;
         internal bool CanSend => ConnectionState == AgentConnectionState.Ready &&
                                  !GitBusy &&
+                                 !PackageUpdating &&
                                  !IsTurnActive &&
                                  !_operationInProgress &&
                                  !ToolingBlocksNewTurns &&
                                  !_threadReadOnly;
         internal bool CanStartThread => ConnectionState == AgentConnectionState.Ready &&
                                         !GitBusy &&
+                                        !PackageUpdating &&
                                         !IsTurnActive &&
                                         !_operationInProgress &&
                                         !ToolingBlocksNewTurns;
@@ -326,6 +328,7 @@ namespace AgentForUnity.Editor.Application
         internal bool CanChangePermissionMode => !_disposed && !IsTurnActive && !_operationInProgress;
         internal bool CanSwitchThread => ConnectionState == AgentConnectionState.Ready &&
                                          !GitBusy &&
+                                         !PackageUpdating &&
                                          !IsTurnActive &&
                                          !_operationInProgress &&
                                          !ToolingBlocksNewTurns;
@@ -883,6 +886,7 @@ namespace AgentForUnity.Editor.Application
             }
 
             _disposed = true;
+            DisposePackageUpdate();
             DisposeGit();
             CancelUserOperation();
             _connectionGeneration++;

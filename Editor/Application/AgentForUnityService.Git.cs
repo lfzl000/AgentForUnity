@@ -25,6 +25,7 @@ namespace AgentForUnity.Editor.Application
         internal bool GitFailed { get; private set; }
         internal bool CanRunGit => ProjectGitAvailability == AgentGitAvailability.Available &&
                                    !_disposed && !GitBusy && !IsTurnStarting && !_operationInProgress &&
+                                   !PackageUpdating &&
                                    !UnityToolingBusy && !ToolingBlocksNewTurns &&
                                    !EditorApplication.isCompiling && !EditorApplication.isUpdating &&
                                    !EditorApplication.isPlayingOrWillChangePlaymode;

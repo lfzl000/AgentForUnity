@@ -38,6 +38,8 @@ namespace AgentForUnity.Editor.UI
         private Label _accountValue;
         private Label _accountUsageValue;
         private Label _projectValue;
+        private Label _packageUpdateStatus;
+        private Button _packageUpdateButton;
         private ScrollView _conversationsScroll;
         private VisualElement _conversationsList;
         private DropdownField _modelField;
@@ -137,6 +139,7 @@ namespace AgentForUnity.Editor.UI
             _service.Changed += OnServiceChanged;
             _service.EnsureStarted();
             _service.RefreshUnityTooling();
+            _service.CheckForPackageUpdate();
         }
 
         private void OnDisable()
@@ -222,6 +225,8 @@ namespace AgentForUnity.Editor.UI
             _accountValue = rootVisualElement.Q<Label>("account-value");
             _accountUsageValue = rootVisualElement.Q<Label>("account-usage-value");
             _projectValue = rootVisualElement.Q<Label>("project-value");
+            _packageUpdateStatus = rootVisualElement.Q<Label>("package-update-status");
+            _packageUpdateButton = rootVisualElement.Q<Button>("package-update-button");
             _conversationsScroll = rootVisualElement.Q<ScrollView>("conversations-scroll");
             _conversationsList = rootVisualElement.Q<VisualElement>("conversations-list");
             _modelField = rootVisualElement.Q<DropdownField>("model-field");
@@ -293,6 +298,8 @@ namespace AgentForUnity.Editor.UI
                    && _accountValue != null
                    && _accountUsageValue != null
                    && _projectValue != null
+                   && _packageUpdateStatus != null
+                   && _packageUpdateButton != null
                    && _conversationsScroll != null
                    && _conversationsList != null
                    && _modelField != null
@@ -377,6 +384,7 @@ namespace AgentForUnity.Editor.UI
             _promptField.RegisterCallback<KeyDownEvent>(OnPromptKeyDown, TrickleDown.TrickleDown);
             _reconnectButton.clicked += () => _service.Reconnect();
             _disconnectButton.clicked += () => _service.Disconnect();
+            _packageUpdateButton.clicked += () => _service.UpdatePackage();
             _diagnosticsButton.clicked += AgentForUnityDiagnosticsWindow.Open;
             _newThreadButton.clicked += () => _service.NewThread();
             _refreshThreadsButton.clicked += () => _service.RefreshThreads();
@@ -1665,6 +1673,7 @@ namespace AgentForUnity.Editor.UI
             _installToolingCliButton.SetEnabled(_service.CanInstallToolingCli);
             _installToolingPackageButton.SetEnabled(_service.CanInstallToolingPackage);
             _refreshToolingButton.SetEnabled(!_service.UnityToolingBusy && !_service.IsTurnStarting && !_service.GitBusy);
+            RefreshPackageUpdate();
 
             _installToolingCliButton.text = _service.UnityToolingBusy && !_service.ToolingCliInstalled
                 ? T("Working...", "处理中…")
@@ -1718,6 +1727,43 @@ namespace AgentForUnity.Editor.UI
                 _toolingConnectionStatusDot,
                 _service.ToolingConnectionReachable,
                 _service.ToolingConnectionChecking);
+        }
+
+        private void RefreshPackageUpdate()
+        {
+            var status = _service.PackageUpdateStatus;
+            if (_service.PackageUpdateChecking)
+            {
+                status = T("Checking for updates...", "正在检查更新…");
+            }
+            else if (_service.PackageUpdateAvailable)
+            {
+                status = T("Update available: ", "发现新版本：") + _service.AvailablePackageVersion;
+            }
+            else if (_service.PackageUpdateFailed)
+            {
+                status = T("Update check failed", "更新检查失败");
+            }
+            else if (status.StartsWith("Up to date", StringComparison.Ordinal))
+            {
+                status = T("Up to date", "已是最新版本");
+            }
+
+            _packageUpdateStatus.text = status;
+            _packageUpdateStatus.tooltip = _service.PackageUpdateStatus;
+            _packageUpdateStatus.EnableInClassList("afu-package-update-status--error", _service.PackageUpdateFailed);
+            _packageUpdateButton.style.display = _service.PackageUpdateAvailable || _service.PackageUpdateChecking
+                ? DisplayStyle.Flex
+                : DisplayStyle.None;
+            _packageUpdateButton.text = _service.PackageUpdateChecking ? T("Checking...", "检查中…") : T("Update", "更新");
+            _packageUpdateButton.tooltip = _service.CanUpdatePackage
+                ? T(
+                    "Update Agent for Unity using a fast-forward-only Git pull. Local changes must be committed or stashed first.",
+                    "通过仅快进的 Git 拉取更新 Agent for Unity。本地变更需先提交或暂存。")
+                : T(
+                    "Finish the active Unity operation before updating Agent for Unity.",
+                    "请先完成当前 Unity 操作，再更新 Agent for Unity。");
+            _packageUpdateButton.SetEnabled(_service.CanUpdatePackage);
         }
 
         private void RefreshToolingBackendField()
@@ -2548,6 +2594,10 @@ namespace AgentForUnity.Editor.UI
             header.Add(identity);
 
             var headerActions = Element(null, "afu-header__actions");
+            headerActions.Add(Label("package-update-status", string.Empty, "afu-package-update-status"));
+            var packageUpdate = Button("package-update-button", "Update", "Update Agent for Unity when a newer version is available");
+            packageUpdate.AddToClassList("afu-package-update-button");
+            headerActions.Add(packageUpdate);
             var languageField = new DropdownField { name = "language-field", tooltip = "Interface language" };
             languageField.AddToClassList("afu-select");
             languageField.AddToClassList("afu-select--language");

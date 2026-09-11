@@ -1323,6 +1323,24 @@
     font-size: 14px;
 }
 
+.afu-package-update-status {
+    max-width: 136px;
+    white-space: normal;
+    font-size: 9px;
+    opacity: 0.72;
+}
+
+.afu-package-update-status--error {
+    color: rgb(190, 76, 60);
+}
+
+.afu-package-update-button {
+    min-width: 54px;
+    min-height: 22px;
+    margin-left: 4px;
+    font-size: 10px;
+}
+
 .afu-detail-row {
     flex-direction: row;
     align-items: flex-start;

@@ -14,6 +14,8 @@ Agent for Unity is an Editor-only Unity package that connects your project to a 
 
 Install a local checkout with **Window > Package Manager > Add package from disk**, then select this repository's `package.json`.
 
+When installed from a clean local Git checkout, the window checks the GitHub package manifest for a newer version and shows **Update** when one is available. Updating performs a fast-forward-only `git pull`; commit or stash local package changes first.
+
 Or install the latest `main` branch with **Add package from git URL**:
 
 ```text
