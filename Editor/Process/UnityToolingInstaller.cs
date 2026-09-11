@@ -1,21 +1,49 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
 using System.Net;
-using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
 
 namespace AgentForUnity.Editor.Application
 {
-    internal sealed class UnityCliInstallation
+    internal enum UnityToolingBackend
     {
-        internal UnityCliInstallation(string path, string version, string error)
+        OfficialPipeline,
+        UnityCliLoop
+    }
+
+    internal enum UnityToolingSetupPhase
+    {
+        EnsureCli,
+        InstallPackage,
+        WaitForPackage,
+        InstallSkills,
+        UpdateGuide,
+        Failed
+    }
+
+    [Serializable]
+    internal sealed class UnityToolingSetupState
+    {
+        public string backend;
+        public string phase;
+        public string error;
+        public string updatedAt;
+
+        internal UnityToolingBackend Backend => UnityToolingInstaller.ParseBackend(backend);
+        internal UnityToolingSetupPhase Phase => UnityToolingInstaller.ParseSetupPhase(phase);
+    }
+
+    internal sealed class ToolingCliInstallation
+    {
+        internal ToolingCliInstallation(string path, string version, string error)
         {
             Path = path;
             Version = version;
@@ -28,9 +56,9 @@ namespace AgentForUnity.Editor.Application
         internal bool IsAvailable => !string.IsNullOrEmpty(Path) && string.IsNullOrEmpty(Error);
     }
 
-    internal sealed class PipelineServerConnection
+    internal sealed class UnityToolingConnection
     {
-        internal PipelineServerConnection(bool isReachable, string endpoint, string status)
+        internal UnityToolingConnection(bool isReachable, string endpoint, string status)
         {
             IsReachable = isReachable;
             Endpoint = endpoint;
@@ -42,86 +70,233 @@ namespace AgentForUnity.Editor.Application
         internal string Status { get; }
     }
 
+    internal sealed class ToolingPackageInstallation
+    {
+        internal ToolingPackageInstallation(string resolvedPath, string version)
+        {
+            ResolvedPath = resolvedPath;
+            Version = version;
+        }
+
+        internal string ResolvedPath { get; }
+        internal string Version { get; }
+    }
+
     internal sealed partial class AgentForUnityService
     {
         private const double UnityToolingRefreshSeconds = 2d;
-        private const double PipelineServerRefreshSeconds = 10d;
+        private const double ToolingPackageResolveTimeoutSeconds = 300d;
 
+        private UnityToolingBackend _requestedToolingBackend;
+        private UnityToolingBackend? _activeToolingBackend;
+        private UnityToolingSetupState _toolingSetupState;
         private bool _unityToolingBusy;
-        private bool _unityCliInstalled;
-        private bool _pipelineInstalled;
-        private bool _pipelineUnityVersionSupported;
-        private bool _pipelineRequiresUnity2022Adaptation;
-        private bool _pipelineProjectSetupComplete;
-        private bool _pipelineServerChecking;
-        private bool _pipelineServerReachable;
+        private bool _toolingCliInstalled;
+        private bool _toolingPackageInstalled;
+        private bool _toolingUnityVersionSupported;
+        private bool _toolingProjectSetupComplete;
+        private bool _toolingConnectionChecking;
+        private bool _toolingConnectionReachable;
         private int _unityToolingOperation;
+        private int _toolingBackendGeneration;
         private double _nextUnityToolingRefreshTime;
-        private double _nextPipelineServerRefreshTime;
-        private string _unityCliPath;
-        private string _unityCliVersion;
-        private string _unityCliStatus = "Not checked";
-        private string _pipelineVersion;
-        private string _pipelineStatus = "Not checked";
-        private string _pipelineServerEndpoint;
-        private string _pipelineServerStatus = "Not checked";
+        private string _toolingCliPath;
+        private string _toolingCliStatus = "Not checked";
+        private string _toolingPackageVersion;
+        private string _toolingPackageStatus = "Not checked";
+        private string _toolingConnectionEndpoint;
+        private string _toolingConnectionStatus = "Not checked";
 
+        internal UnityToolingBackend RequestedToolingBackend => _requestedToolingBackend;
+        internal UnityToolingBackend? ActiveToolingBackend => _activeToolingBackend;
         internal bool UnityToolingBusy => _unityToolingBusy;
-        internal bool UnityCliInstalled => _unityCliInstalled;
-        internal bool PipelineInstalled => _pipelineInstalled;
-        internal bool PipelineUnityVersionSupported => _pipelineUnityVersionSupported;
-        internal bool PipelineRequiresUnity2022Adaptation => _pipelineRequiresUnity2022Adaptation;
-        internal bool PipelineProjectSetupComplete => _pipelineProjectSetupComplete;
-        internal bool PipelineServerChecking => _pipelineServerChecking;
-        internal bool PipelineServerReachable => _pipelineServerReachable;
-        internal string UnityCliStatus => _unityCliStatus;
-        internal string PipelineStatus => _pipelineStatus;
-        internal string PipelineServerStatus => _pipelineServerStatus;
-        internal string PipelineServerEndpoint => _pipelineServerEndpoint;
-        internal string UnityCliToolPath => _unityCliPath;
-        internal string UnityCliToolVersion => _unityCliVersion;
-        internal string PipelineVersion => _pipelineVersion;
-        internal bool CanInstallUnityCli => !_disposed && !_unityToolingBusy && !_unityCliInstalled;
-        internal bool CanInstallPipeline => !_disposed && !_unityToolingBusy && _pipelineUnityVersionSupported &&
-                                            (!_pipelineInstalled || !_pipelineProjectSetupComplete);
+        internal bool ToolingCliInstalled => _toolingCliInstalled;
+        internal bool ToolingPackageInstalled => _toolingPackageInstalled;
+        internal bool ToolingUnityVersionSupported => _toolingUnityVersionSupported;
+        internal bool ToolingProjectSetupComplete => _toolingProjectSetupComplete;
+        internal bool ToolingConnectionChecking => _toolingConnectionChecking;
+        internal bool ToolingConnectionReachable => _toolingConnectionReachable;
+        internal bool ToolingSetupPending => _toolingSetupState != null;
+        internal bool ToolingSetupFailed => _toolingSetupState?.Phase == UnityToolingSetupPhase.Failed;
+        private bool ToolingSwitchPending => _activeToolingBackend.HasValue &&
+                                             _activeToolingBackend.Value != _requestedToolingBackend;
+        internal bool ToolingBlocksNewTurns =>
+            _unityToolingBusy ||
+            ToolingSetupPending && (!ToolingSetupFailed || _activeToolingBackend.HasValue) ||
+            ToolingSwitchPending;
+        private static bool UnityEditorBusyForTooling => EditorApplication.isCompiling || EditorApplication.isUpdating;
+        internal string ToolingCliStatus => _toolingCliStatus;
+        internal string ToolingPackageStatus => _toolingPackageStatus;
+        internal string ToolingConnectionStatus => _toolingConnectionStatus;
+        internal string ToolingConnectionEndpoint => _toolingConnectionEndpoint;
+        internal string ToolingCliToolPath => _toolingCliPath;
+        internal bool CanChangeToolingBackend => !_disposed &&
+                                                 !_unityToolingBusy &&
+                                                 !IsTurnStarting &&
+                                                 !_operationInProgress &&
+                                                 !UnityEditorBusyForTooling &&
+                                                 UnityToolingInstaller.IsUnity6OrNewer(UnityEngine.Application.unityVersion) &&
+                                                 (_toolingSetupState == null || ToolingSetupFailed);
+        internal bool CanInstallToolingCli => !_disposed &&
+                                              !_unityToolingBusy &&
+                                              !IsTurnStarting &&
+                                              !_operationInProgress &&
+                                              !UnityEditorBusyForTooling &&
+                                              _toolingUnityVersionSupported &&
+                                              !_toolingCliInstalled &&
+                                              (_toolingSetupState == null || ToolingSetupFailed);
+        internal bool CanInstallToolingPackage => !_disposed &&
+                                                  !_unityToolingBusy &&
+                                                  !IsTurnStarting &&
+                                                  !_operationInProgress &&
+                                                  !UnityEditorBusyForTooling &&
+                                                  _toolingUnityVersionSupported &&
+                                                  (_toolingSetupState == null || ToolingSetupFailed) &&
+                                                  (!_toolingProjectSetupComplete ||
+                                                   _activeToolingBackend != _requestedToolingBackend);
 
-        internal async void RefreshUnityTooling()
+        private void InitializeUnityToolingState()
         {
-            if (_disposed || _unityToolingBusy)
+            var unityVersion = UnityEngine.Application.unityVersion;
+            var defaultBackend = UnityToolingInstaller.GetDefaultBackend(unityVersion);
+            _requestedToolingBackend = UnityToolingInstaller.TryParseBackend(
+                    _persistedState.requestedToolingBackend,
+                    out var requested) &&
+                UnityToolingInstaller.IsBackendSupported(requested, unityVersion)
+                    ? requested
+                    : defaultBackend;
+
+            if (UnityToolingInstaller.TryParseBackend(_persistedState.activeToolingBackend, out var active) &&
+                UnityToolingInstaller.IsBackendSupported(active, unityVersion))
+            {
+                _activeToolingBackend = active;
+            }
+            else
+            {
+                _activeToolingBackend = null;
+            }
+
+            try
+            {
+                _toolingSetupState = UnityToolingInstaller.LoadSetupState(_projectRoot);
+                if (_toolingSetupState != null &&
+                    UnityToolingInstaller.IsBackendSupported(_toolingSetupState.Backend, unityVersion))
+                {
+                    _requestedToolingBackend = _toolingSetupState.Backend;
+                }
+            }
+            catch (Exception exception)
+            {
+                _toolingSetupState = UnityToolingInstaller.CreateSetupState(
+                    _requestedToolingBackend,
+                    UnityToolingSetupPhase.Failed);
+                _toolingSetupState.error = "Setup state invalid · " + exception.Message;
+                AddDiagnostic("Could not restore Unity tooling setup: " + exception.Message);
+            }
+
+            SaveUnityToolingState();
+            RefreshToolingInstallation();
+        }
+
+        private void SaveUnityToolingState()
+        {
+            _persistedState.requestedToolingBackend = UnityToolingInstaller.BackendToken(_requestedToolingBackend);
+            _persistedState.activeToolingBackend = _activeToolingBackend.HasValue
+                ? UnityToolingInstaller.BackendToken(_activeToolingBackend.Value)
+                : null;
+        }
+
+        internal void SelectToolingBackend(UnityToolingBackend backend)
+        {
+            if (_requestedToolingBackend == backend ||
+                !CanChangeToolingBackend ||
+                !UnityToolingInstaller.IsBackendSupported(backend, UnityEngine.Application.unityVersion))
             {
                 return;
             }
 
-            var operation = BeginUnityToolingOperation("Detecting Unity CLI", "Checking Pipeline package");
+            _requestedToolingBackend = backend;
+            _toolingBackendGeneration++;
+            _unityToolingOperation++;
+            _toolingConnectionChecking = false;
+            _toolingConnectionReachable = false;
+            _toolingConnectionEndpoint = null;
+            _toolingConnectionStatus = "Not checked";
+            var cancelledFailedSwitch = TryCancelFailedToolingSwitch(backend);
+            SaveState();
+            RefreshToolingInstallation();
+            MarkChanged();
+            if (cancelledFailedSwitch)
+            {
+                ReconnectForToolingInstructionChange();
+            }
+            RefreshUnityTooling();
+        }
+
+        private bool TryCancelFailedToolingSwitch(UnityToolingBackend backend)
+        {
+            if (!ToolingSetupFailed ||
+                !_activeToolingBackend.HasValue ||
+                _activeToolingBackend.Value != backend ||
+                _toolingSetupState.Backend == backend ||
+                UnityToolingInstaller.FindPackage(backend, _projectRoot) == null ||
+                !UnityToolingInstaller.IsProjectSkillSetupReady(backend, _projectRoot))
+            {
+                return false;
+            }
+
             try
             {
-                var cli = await UnityToolingInstaller.DetectUnityCliAsync();
-                if (!IsCurrentUnityToolingOperation(operation))
+                UnityToolingInstaller.UpdateManagedGuide(_projectRoot, backend, "active");
+                UnityToolingInstaller.ClearSetupState(_projectRoot);
+                _toolingSetupState = null;
+                return true;
+            }
+            catch (Exception exception)
+            {
+                AddDiagnostic("Could not cancel the failed Unity tooling switch: " + exception.Message);
+                return false;
+            }
+        }
+
+        internal async void RefreshUnityTooling()
+        {
+            if (_disposed ||
+                _unityToolingBusy ||
+                IsTurnStarting ||
+                _operationInProgress ||
+                UnityEditorBusyForTooling)
+            {
+                return;
+            }
+
+            ReloadToolingSetupState();
+            var backend = _requestedToolingBackend;
+            var generation = _toolingBackendGeneration;
+            var operation = BeginUnityToolingOperation("Detecting tooling CLI", "Checking tooling package");
+            try
+            {
+                var cli = await UnityToolingInstaller.DetectCliAsync(backend);
+                if (!IsCurrentUnityToolingOperation(operation, backend, generation))
                 {
                     return;
                 }
 
-                ApplyUnityCliDetection(cli);
-                RefreshPipelineInstallation();
-                if (_pipelineInstalled &&
-                    _pipelineUnityVersionSupported &&
-                    !_pipelineRequiresUnity2022Adaptation &&
-                    File.Exists(UnityToolingInstaller.PendingSetupPath(_projectRoot)))
-                {
-                    CompletePipelineProjectSetup();
-                }
-
-                await RefreshPipelineServerStatusAsync(operation);
+                ApplyToolingCliDetection(cli);
+                RefreshToolingInstallation();
+                await RefreshToolingConnectionStatusAsync(operation, backend, generation);
             }
             catch (Exception exception)
             {
-                if (IsCurrentUnityToolingOperation(operation))
+                if (IsCurrentUnityToolingOperation(operation, backend, generation))
                 {
-                    if (!_unityCliInstalled)
+                    if (!_toolingCliInstalled)
                     {
-                        _unityCliStatus = "Detection failed";
+                        _toolingCliStatus = "Detection failed";
                     }
-                    _pipelineStatus = _pipelineInstalled ? "Project setup failed" : "Detection failed";
+                    _toolingPackageStatus = _toolingPackageInstalled
+                        ? "Project setup failed"
+                        : "Detection failed";
                     AddDiagnostic("Unity tooling detection failed: " + exception.Message);
                 }
             }
@@ -131,35 +306,37 @@ namespace AgentForUnity.Editor.Application
             }
         }
 
-        internal async void InstallUnityCli()
+        internal async void InstallToolingCli()
         {
-            if (!CanInstallUnityCli)
+            if (!CanInstallToolingCli)
             {
                 return;
             }
 
-            var operation = BeginUnityToolingOperation("Installing Unity CLI", _pipelineStatus);
+            var backend = _requestedToolingBackend;
+            var generation = _toolingBackendGeneration;
+            var operation = BeginUnityToolingOperation("Installing tooling CLI", _toolingPackageStatus);
             try
             {
-                var cli = await UnityToolingInstaller.EnsureUnityCliInstalledAsync();
-                if (!IsCurrentUnityToolingOperation(operation))
+                var cli = await UnityToolingInstaller.EnsureCliInstalledAsync(backend);
+                if (!IsCurrentUnityToolingOperation(operation, backend, generation))
                 {
                     return;
                 }
 
-                ApplyUnityCliDetection(cli);
+                ApplyToolingCliDetection(cli);
                 if (!cli.IsAvailable)
                 {
-                    throw new InvalidOperationException(cli.Error ?? "Unity CLI installation failed.");
+                    throw new InvalidOperationException(cli.Error ?? "Tooling CLI installation failed.");
                 }
             }
             catch (Exception exception)
             {
-                if (IsCurrentUnityToolingOperation(operation))
+                if (IsCurrentUnityToolingOperation(operation, backend, generation))
                 {
-                    _unityCliInstalled = false;
-                    _unityCliStatus = "Installation failed";
-                    AddDiagnostic("Unity CLI installation failed: " + exception.Message);
+                    _toolingCliInstalled = false;
+                    _toolingCliStatus = "Installation failed";
+                    AddDiagnostic(ToolingBackendName(backend) + " CLI installation failed: " + exception.Message);
                 }
             }
             finally
@@ -168,110 +345,363 @@ namespace AgentForUnity.Editor.Application
             }
         }
 
-        internal async void InstallPipeline()
+        internal void InstallToolingBackend()
         {
-            if (!CanInstallPipeline)
+            if (!CanInstallToolingPackage)
             {
                 return;
             }
 
-            var operation = BeginUnityToolingOperation(_unityCliStatus, "Preparing Pipeline installation");
+            var setup = UnityToolingInstaller.CreateSetupState(
+                _requestedToolingBackend,
+                UnityToolingSetupPhase.EnsureCli);
+            if (_requestedToolingBackend == UnityToolingBackend.OfficialPipeline &&
+                UnityToolingInstaller.IsLegacyAdaptedPipelinePackage(_projectRoot))
+            {
+                FailToolingSetup(
+                    setup,
+                    new InvalidOperationException(UnityToolingInstaller.LegacyAdaptedPipelineMigrationMessage));
+                return;
+            }
+
             try
             {
-                var cli = await UnityToolingInstaller.EnsureUnityCliInstalledAsync();
-                if (!IsCurrentUnityToolingOperation(operation))
-                {
-                    return;
-                }
-
-                ApplyUnityCliDetection(cli);
-                if (!cli.IsAvailable)
-                {
-                    throw new InvalidOperationException(cli.Error ?? "Unity CLI installation failed.");
-                }
-
-                RefreshPipelineInstallation();
-                if (_pipelineInstalled && !_pipelineRequiresUnity2022Adaptation)
-                {
-                    _pipelineStatus = "Finishing project setup";
-                    MarkChanged();
-                    CompletePipelineProjectSetup();
-                    return;
-                }
-
-                UnityToolingInstaller.MarkSetupPending(_projectRoot);
-                _pipelineStatus = UnityEngine.Application.unityVersion.StartsWith("2022.", StringComparison.Ordinal)
-                    ? "Installing Unity 2022 compatible source"
-                    : "Installing with Unity CLI";
-                MarkChanged();
-
-                if (UnityEngine.Application.unityVersion.StartsWith("2022.", StringComparison.Ordinal))
-                {
-                    await UnityToolingInstaller.InstallUnity2022PipelineAsync(_projectRoot);
-                }
-                else
-                {
-                    await UnityToolingInstaller.InstallPipelineWithCliAsync(cli.Path, _projectRoot);
-                }
-
-                if (!IsCurrentUnityToolingOperation(operation))
-                {
-                    return;
-                }
-
-                AssetDatabase.Refresh();
-                RefreshPipelineInstallation();
-                if (_pipelineInstalled)
-                {
-                    CompletePipelineProjectSetup();
-                }
-                else
-                {
-                    _pipelineStatus = "Waiting for Unity to resolve the package";
-                }
+                UnityToolingInstaller.SaveSetupState(_projectRoot, setup);
+                _toolingSetupState = setup;
+                UnityToolingInstaller.UpdateManagedGuide(_projectRoot, setup.Backend, "pending");
+                SaveState();
+                ContinueToolingSetup(setup);
             }
             catch (Exception exception)
             {
-                if (IsCurrentUnityToolingOperation(operation))
-                {
-                    _pipelineStatus = "Installation failed";
-                    UnityToolingInstaller.ClearSetupPending(_projectRoot);
-                    AddDiagnostic("Pipeline installation failed: " + exception.Message);
-                }
-            }
-            finally
-            {
-                EndUnityToolingOperation(operation);
+                FailToolingSetup(setup, exception);
             }
         }
 
         internal void ResumePendingUnityToolingSetup()
         {
-            if (_disposed || _unityToolingBusy || !File.Exists(UnityToolingInstaller.PendingSetupPath(_projectRoot)))
+            if (_disposed ||
+                _unityToolingBusy ||
+                IsTurnStarting ||
+                _operationInProgress ||
+                UnityEditorBusyForTooling)
             {
                 return;
             }
 
-            RefreshPipelineInstallation();
-            if (!_pipelineInstalled || !_pipelineUnityVersionSupported)
+            ReloadToolingSetupState();
+            var setup = _toolingSetupState;
+            if (setup == null || setup.Phase == UnityToolingSetupPhase.Failed)
             {
                 return;
             }
-            if (_pipelineRequiresUnity2022Adaptation)
+            if (!UnityToolingInstaller.IsBackendSupported(setup.Backend, UnityEngine.Application.unityVersion))
             {
-                InstallPipeline();
+                FailToolingSetup(setup, new InvalidOperationException("The pending backend is not supported by this Unity version."));
                 return;
             }
 
+            if (_requestedToolingBackend != setup.Backend)
+            {
+                _requestedToolingBackend = setup.Backend;
+                _toolingBackendGeneration++;
+                SaveState();
+            }
+
+            if (setup.Phase == UnityToolingSetupPhase.WaitForPackage)
+            {
+                RefreshToolingInstallation();
+                if (!_toolingPackageInstalled)
+                {
+                    if (UnityToolingInstaller.HasSetupTimedOut(
+                            setup,
+                            TimeSpan.FromSeconds(ToolingPackageResolveTimeoutSeconds)))
+                    {
+                        FailToolingSetup(
+                            setup,
+                            new TimeoutException("Unity did not resolve the tooling package within five minutes."));
+                        return;
+                    }
+
+                    _toolingPackageStatus = "Resolving and compiling tooling package";
+                    MarkChanged();
+                    return;
+                }
+
+                SetSetupPhase(setup, UnityToolingSetupPhase.InstallSkills);
+            }
+
+            ContinueToolingSetup(setup);
+        }
+
+        private async void ContinueToolingSetup(UnityToolingSetupState setup)
+        {
+            if (_disposed ||
+                _unityToolingBusy ||
+                IsTurnStarting ||
+                _operationInProgress ||
+                UnityEditorBusyForTooling ||
+                setup == null)
+            {
+                return;
+            }
+
+            var backend = setup.Backend;
+            var generation = _toolingBackendGeneration;
+            var operation = BeginUnityToolingOperation(_toolingCliStatus, SetupPhaseStatus(setup.Phase));
             try
             {
-                CompletePipelineProjectSetup();
+                ToolingCliInstallation cli = null;
+                if (setup.Phase == UnityToolingSetupPhase.EnsureCli)
+                {
+                    _toolingCliStatus = "Installing tooling CLI";
+                    MarkChanged();
+                    cli = await UnityToolingInstaller.EnsureCliInstalledAsync(backend);
+                    if (ShouldPauseUnityToolingContinuation(operation, backend, generation))
+                    {
+                        return;
+                    }
+
+                    ApplyToolingCliDetection(cli);
+                    if (!cli.IsAvailable)
+                    {
+                        throw new InvalidOperationException(cli.Error ?? "Tooling CLI installation failed.");
+                    }
+
+                    SetSetupPhase(setup, UnityToolingSetupPhase.InstallPackage);
+                }
+
+                if (setup.Phase == UnityToolingSetupPhase.InstallPackage)
+                {
+                    RefreshToolingInstallation();
+                    if (!_toolingPackageInstalled)
+                    {
+                        if (cli == null)
+                        {
+                            cli = await UnityToolingInstaller.DetectCliAsync(backend);
+                        }
+                        if (ShouldPauseUnityToolingContinuation(operation, backend, generation))
+                        {
+                            return;
+                        }
+                        if (!cli.IsAvailable)
+                        {
+                            throw new InvalidOperationException(cli.Error ?? "The tooling CLI is unavailable.");
+                        }
+
+                        // Persist WaitForPackage before the external command can trigger Package Manager and Domain Reload.
+                        SetSetupPhase(setup, UnityToolingSetupPhase.WaitForPackage);
+                        _toolingPackageStatus = "Installing tooling package";
+                        MarkChanged();
+                        await UnityToolingInstaller.InstallPackageAsync(backend, cli.Path, _projectRoot);
+                        if (ShouldPauseUnityToolingContinuation(operation, backend, generation))
+                        {
+                            return;
+                        }
+
+                        // Reset the timeout after the external installer finishes, then let UPM own
+                        // package import, script compilation, and any resulting Domain Reload.
+                        SetSetupPhase(setup, UnityToolingSetupPhase.WaitForPackage);
+                        UnityEditor.PackageManager.Client.Resolve();
+                        return;
+                    }
+
+                    SetSetupPhase(setup, UnityToolingSetupPhase.InstallSkills);
+                }
+
+                if (setup.Phase == UnityToolingSetupPhase.WaitForPackage)
+                {
+                    RefreshToolingInstallation();
+                    if (!_toolingPackageInstalled)
+                    {
+                        _toolingPackageStatus = "Resolving and compiling tooling package";
+                        return;
+                    }
+
+                    SetSetupPhase(setup, UnityToolingSetupPhase.InstallSkills);
+                }
+
+                if (setup.Phase == UnityToolingSetupPhase.InstallSkills)
+                {
+                    var package = UnityToolingInstaller.FindPackage(backend, _projectRoot);
+                    if (package == null)
+                    {
+                        SetSetupPhase(setup, UnityToolingSetupPhase.WaitForPackage);
+                        _toolingPackageStatus = "Resolving and compiling tooling package";
+                        return;
+                    }
+
+                    if (cli == null)
+                    {
+                        cli = await UnityToolingInstaller.DetectCliAsync(backend);
+                    }
+                    if (ShouldPauseUnityToolingContinuation(operation, backend, generation))
+                    {
+                        return;
+                    }
+                    ApplyToolingCliDetection(cli);
+                    if (!cli.IsAvailable)
+                    {
+                        throw new InvalidOperationException(cli.Error ?? "The tooling CLI is unavailable.");
+                    }
+
+                    _toolingPackageStatus = "Installing project skills";
+                    MarkChanged();
+                    await UnityToolingInstaller.InstallProjectSkillsAsync(
+                        backend,
+                        cli?.Path,
+                        _projectRoot,
+                        package.ResolvedPath);
+                    if (ShouldPauseUnityToolingContinuation(operation, backend, generation))
+                    {
+                        return;
+                    }
+
+                    SetSetupPhase(setup, UnityToolingSetupPhase.UpdateGuide);
+                }
+
+                if (setup.Phase == UnityToolingSetupPhase.UpdateGuide)
+                {
+                    if (IsTurnStarting || _operationInProgress || UnityEditorBusyForTooling)
+                    {
+                        return;
+                    }
+
+                    if (cli == null)
+                    {
+                        cli = await UnityToolingInstaller.DetectCliAsync(backend);
+                    }
+                    if (ShouldPauseUnityToolingContinuation(operation, backend, generation))
+                    {
+                        return;
+                    }
+                    ApplyToolingCliDetection(cli);
+                    if (!cli.IsAvailable)
+                    {
+                        throw new InvalidOperationException(cli.Error ?? "The tooling CLI is unavailable.");
+                    }
+                    if (UnityToolingInstaller.FindPackage(backend, _projectRoot) == null)
+                    {
+                        SetSetupPhase(setup, UnityToolingSetupPhase.WaitForPackage);
+                        return;
+                    }
+                    if (!UnityToolingInstaller.IsProjectSkillSetupReady(backend, _projectRoot))
+                    {
+                        SetSetupPhase(setup, UnityToolingSetupPhase.InstallSkills);
+                        return;
+                    }
+
+                    UnityToolingInstaller.UpdateManagedGuide(_projectRoot, backend, "active");
+                    var previousActive = _activeToolingBackend;
+                    _activeToolingBackend = backend;
+                    if (!SaveState())
+                    {
+                        _activeToolingBackend = previousActive;
+                        SaveUnityToolingState();
+                        throw new IOException("Could not persist the active Unity tooling backend.");
+                    }
+
+                    UnityToolingInstaller.ClearSetupState(_projectRoot);
+                    _toolingSetupState = null;
+                    RefreshToolingInstallation();
+                    _toolingConnectionChecking = false;
+                    _toolingConnectionReachable = false;
+                    _toolingConnectionEndpoint = null;
+                    _toolingConnectionStatus = "Not checked";
+                    MarkChanged();
+
+                    if (_started && ConnectionState != AgentConnectionState.Disconnected)
+                    {
+                        Reconnect();
+                    }
+                }
             }
             catch (Exception exception)
             {
-                _pipelineStatus = "Project setup failed";
-                AddDiagnostic("Pipeline project setup failed: " + exception.Message);
-                MarkChanged();
+                if (IsCurrentUnityToolingOperation(operation, backend, generation))
+                {
+                    FailToolingSetup(setup, exception);
+                }
+            }
+            finally
+            {
+                EndUnityToolingOperation(operation);
+            }
+        }
+
+        private void FailToolingSetup(UnityToolingSetupState setup, Exception exception)
+        {
+            if (setup == null)
+            {
+                return;
+            }
+
+            setup.phase = UnityToolingInstaller.SetupPhaseToken(UnityToolingSetupPhase.Failed);
+            setup.error = exception?.Message ?? "Unknown setup error.";
+            setup.updatedAt = DateTime.UtcNow.ToString("O");
+            try
+            {
+                UnityToolingInstaller.SaveSetupState(_projectRoot, setup);
+                UnityToolingInstaller.UpdateManagedGuide(_projectRoot, setup.Backend, "failed");
+            }
+            catch (Exception persistenceException)
+            {
+                AddDiagnostic("Could not persist failed Unity tooling setup: " + persistenceException.Message);
+            }
+
+            _toolingSetupState = setup;
+            _toolingProjectSetupComplete = false;
+            _toolingPackageStatus = "Setup failed · " + setup.error;
+            AddDiagnostic(ToolingBackendName(setup.Backend) + " setup failed: " + setup.error);
+            MarkChanged();
+            ReconnectForToolingInstructionChange();
+        }
+
+        private void SetSetupPhase(UnityToolingSetupState setup, UnityToolingSetupPhase phase)
+        {
+            setup.phase = UnityToolingInstaller.SetupPhaseToken(phase);
+            setup.error = null;
+            setup.updatedAt = DateTime.UtcNow.ToString("O");
+            UnityToolingInstaller.SaveSetupState(_projectRoot, setup);
+            _toolingSetupState = setup;
+            _toolingPackageStatus = SetupPhaseStatus(phase);
+            MarkChanged();
+        }
+
+        private void ReloadToolingSetupState()
+        {
+            var invalidStateAlreadyReported = _toolingSetupState != null &&
+                                              _toolingSetupState.Phase == UnityToolingSetupPhase.Failed &&
+                                              (_toolingSetupState.error ?? string.Empty)
+                                              .StartsWith("Setup state invalid", StringComparison.Ordinal);
+            try
+            {
+                _toolingSetupState = UnityToolingInstaller.LoadSetupState(_projectRoot);
+            }
+            catch (Exception exception)
+            {
+                _toolingSetupState = UnityToolingInstaller.CreateSetupState(
+                    _requestedToolingBackend,
+                    UnityToolingSetupPhase.Failed);
+                _toolingSetupState.error = "Setup state invalid · " + exception.Message;
+                _toolingProjectSetupComplete = false;
+                _toolingPackageStatus = "Setup state invalid";
+                if (!invalidStateAlreadyReported)
+                {
+                    AddDiagnostic("Could not read Unity tooling setup state: " + exception.Message);
+                    ReconnectForToolingInstructionChange();
+                }
+            }
+        }
+
+        private void ReconnectForToolingInstructionChange()
+        {
+            if (!_disposed &&
+                _started &&
+                !IsTurnStarting &&
+                ConnectionState != AgentConnectionState.Disconnected)
+            {
+                Reconnect();
             }
         }
 
@@ -289,72 +719,113 @@ namespace AgentForUnity.Editor.Application
                 ResumePendingUnityToolingSetup();
             }
 
-            if (!_unityToolingBusy && !_pipelineServerChecking && now >= _nextPipelineServerRefreshTime)
-            {
-                _nextPipelineServerRefreshTime = now + PipelineServerRefreshSeconds;
-                RefreshPipelineServerStatus();
-            }
+            // Keep network and process probes event-driven. Repeated probes can exhaust
+            // Unity 2022 Mono's IOSelector registrations during long Editor sessions.
         }
 
-        private async void RefreshPipelineServerStatus()
+        private async Task RefreshToolingConnectionStatusAsync(
+            int toolingOperation,
+            UnityToolingBackend backend,
+            int generation)
         {
-            await RefreshPipelineServerStatusAsync();
-        }
-
-        private async Task RefreshPipelineServerStatusAsync(int toolingOperation = 0)
-        {
-            if (_disposed || _pipelineServerChecking)
+            if (_disposed || _toolingConnectionChecking ||
+                IsTurnStarting ||
+                _operationInProgress ||
+                backend != _requestedToolingBackend || generation != _toolingBackendGeneration)
             {
                 return;
             }
 
-            _pipelineServerChecking = true;
-            _pipelineServerStatus = "Checking connection";
+            if (!_toolingProjectSetupComplete)
+            {
+                _toolingConnectionReachable = false;
+                _toolingConnectionEndpoint = null;
+                _toolingConnectionStatus = "Unavailable · Backend is not active";
+                MarkChanged();
+                return;
+            }
+
+            _toolingConnectionChecking = true;
+            _toolingConnectionStatus = "Checking connection";
             MarkChanged();
             try
             {
-                var connection = await UnityToolingInstaller.DetectPipelineServerAsync(_projectRoot);
-                if (_disposed || toolingOperation != 0 && !IsCurrentUnityToolingOperation(toolingOperation))
+                var connection = await UnityToolingInstaller.DetectConnectionAsync(
+                    backend,
+                    _toolingCliPath,
+                    _projectRoot);
+                if (!IsCurrentToolingConnection(toolingOperation, backend, generation))
                 {
                     return;
                 }
 
-                _pipelineServerReachable = connection.IsReachable;
-                _pipelineServerEndpoint = connection.Endpoint;
-                _pipelineServerStatus = connection.Status;
+                _toolingConnectionReachable = connection.IsReachable;
+                _toolingConnectionEndpoint = connection.Endpoint;
+                _toolingConnectionStatus = connection.Status;
             }
             catch (Exception exception)
             {
-                if (!_disposed && (toolingOperation == 0 || IsCurrentUnityToolingOperation(toolingOperation)))
+                if (IsCurrentToolingConnection(toolingOperation, backend, generation))
                 {
-                    _pipelineServerReachable = false;
-                    _pipelineServerEndpoint = null;
-                    _pipelineServerStatus = "Detection failed · " + exception.Message;
+                    _toolingConnectionReachable = false;
+                    _toolingConnectionEndpoint = null;
+                    _toolingConnectionStatus = "Detection failed · " + exception.Message;
                 }
             }
             finally
             {
-                _pipelineServerChecking = false;
-                if (!_disposed)
+                if (backend == _requestedToolingBackend && generation == _toolingBackendGeneration)
                 {
-                    MarkChanged();
+                    _toolingConnectionChecking = false;
+                    if (!_disposed)
+                    {
+                        MarkChanged();
+                    }
                 }
             }
         }
 
-        private int BeginUnityToolingOperation(string cliStatus, string pipelineStatus)
+        private bool IsCurrentToolingConnection(
+            int toolingOperation,
+            UnityToolingBackend backend,
+            int generation)
+        {
+            return !_disposed &&
+                   backend == _requestedToolingBackend &&
+                   generation == _toolingBackendGeneration &&
+                   (toolingOperation == 0 || toolingOperation == _unityToolingOperation);
+        }
+
+        private int BeginUnityToolingOperation(string cliStatus, string packageStatus)
         {
             _unityToolingBusy = true;
             var operation = ++_unityToolingOperation;
-            _unityCliStatus = cliStatus;
-            _pipelineStatus = pipelineStatus;
+            _toolingCliStatus = cliStatus;
+            _toolingPackageStatus = packageStatus;
             MarkChanged();
             return operation;
         }
 
-        private bool IsCurrentUnityToolingOperation(int operation)
+        private bool IsCurrentUnityToolingOperation(
+            int operation,
+            UnityToolingBackend backend,
+            int generation)
         {
-            return !_disposed && operation == _unityToolingOperation;
+            return !_disposed &&
+                   operation == _unityToolingOperation &&
+                   backend == _requestedToolingBackend &&
+                   generation == _toolingBackendGeneration;
+        }
+
+        private bool ShouldPauseUnityToolingContinuation(
+            int operation,
+            UnityToolingBackend backend,
+            int generation)
+        {
+            return !IsCurrentUnityToolingOperation(operation, backend, generation) ||
+                   IsTurnStarting ||
+                   _operationInProgress ||
+                   UnityEditorBusyForTooling;
         }
 
         private void EndUnityToolingOperation(int operation)
@@ -368,146 +839,826 @@ namespace AgentForUnity.Editor.Application
             MarkChanged();
         }
 
-        private void ApplyUnityCliDetection(UnityCliInstallation cli)
+        private void ApplyToolingCliDetection(ToolingCliInstallation cli)
         {
-            _unityCliInstalled = cli.IsAvailable;
-            _unityCliPath = cli.Path;
-            _unityCliVersion = cli.Version;
-            _unityCliStatus = cli.IsAvailable
+            _toolingCliInstalled = cli.IsAvailable;
+            _toolingCliPath = cli.Path;
+            _toolingCliStatus = cli.IsAvailable
                 ? "Installed" + (string.IsNullOrEmpty(cli.Version) ? string.Empty : " · " + cli.Version)
                 : "Not installed";
             if (!cli.IsAvailable && !string.IsNullOrWhiteSpace(cli.Error))
             {
-                _unityCliStatus += " · " + cli.Error;
+                _toolingCliStatus += " · " + cli.Error;
             }
         }
 
-        private void RefreshPipelineInstallation()
+        private void RefreshToolingInstallation()
         {
-            var pipeline = UnityToolingInstaller.FindPipelinePackage(_projectRoot);
-            _pipelineInstalled = pipeline != null;
-            _pipelineVersion = pipeline?.Version;
-            _pipelineUnityVersionSupported = UnityToolingInstaller.IsPipelineUnityVersionSupported(
+            var backend = _requestedToolingBackend;
+            var hasLegacyAdaptedPipeline = backend == UnityToolingBackend.OfficialPipeline &&
+                                           UnityToolingInstaller.IsLegacyAdaptedPipelinePackage(_projectRoot);
+            var package = UnityToolingInstaller.FindPackage(backend, _projectRoot);
+            _toolingPackageInstalled = package != null;
+            _toolingPackageVersion = package?.Version;
+            _toolingUnityVersionSupported = UnityToolingInstaller.IsBackendSupported(
+                backend,
                 UnityEngine.Application.unityVersion);
-            _pipelineRequiresUnity2022Adaptation = _pipelineInstalled &&
-                                                    UnityEngine.Application.unityVersion.StartsWith("2022.", StringComparison.Ordinal) &&
-                                                    !UnityToolingInstaller.IsUnity2022PipelineAdapted(_projectRoot);
-            _pipelineProjectSetupComplete = _pipelineInstalled &&
-                                            _pipelineUnityVersionSupported &&
-                                            !_pipelineRequiresUnity2022Adaptation &&
-                                            UnityToolingInstaller.IsProjectSetupComplete(_projectRoot);
-            var versionSuffix = string.IsNullOrEmpty(_pipelineVersion) ? string.Empty : " · " + _pipelineVersion;
-            if (!_pipelineUnityVersionSupported)
+            _toolingProjectSetupComplete = _toolingPackageInstalled &&
+                                           _toolingUnityVersionSupported &&
+                                           _toolingSetupState == null &&
+                                           _activeToolingBackend == backend &&
+                                           UnityToolingInstaller.IsProjectSupportReady(backend, _projectRoot);
+
+            var versionSuffix = string.IsNullOrEmpty(_toolingPackageVersion)
+                ? string.Empty
+                : " · " + _toolingPackageVersion;
+            if (!_toolingUnityVersionSupported)
             {
-                _pipelineStatus = _pipelineInstalled
+                _toolingPackageStatus = _toolingPackageInstalled
                     ? "Installed" + versionSuffix + " · Unsupported Unity version"
                     : "Unsupported Unity version";
                 return;
             }
-            if (!_pipelineInstalled)
+            if (_toolingSetupState != null)
             {
-                _pipelineStatus = "Not installed";
+                _toolingPackageStatus = _toolingSetupState.Phase == UnityToolingSetupPhase.Failed
+                    ? "Setup failed · " + (_toolingSetupState.error ?? "Unknown error")
+                    : SetupPhaseStatus(_toolingSetupState.Phase);
+                return;
+            }
+            if (hasLegacyAdaptedPipeline)
+            {
+                _toolingPackageStatus = "Legacy adapted package · Remove Packages/com.unity.pipeline before setup";
+                return;
+            }
+            if (!_toolingPackageInstalled)
+            {
+                _toolingPackageStatus = "Not installed";
                 return;
             }
 
-            if (_pipelineRequiresUnity2022Adaptation)
-            {
-                _pipelineStatus = "Installed" + versionSuffix + " · Unity 2022 adaptation required";
-                return;
-            }
-
-            _pipelineStatus = _pipelineProjectSetupComplete
-                ? "Installed" + versionSuffix + " · Skills ready"
-                : "Installed" + versionSuffix + " · Project setup incomplete";
+            _toolingPackageStatus = _toolingProjectSetupComplete
+                ? "Installed" + versionSuffix + " · Skills ready · Active"
+                : "Installed" + versionSuffix + " · Not active";
         }
 
-        private void CompletePipelineProjectSetup()
+        private string GetUnityToolingDeveloperInstructions()
         {
-            var pipeline = UnityToolingInstaller.FindPipelinePackage(_projectRoot);
-            if (pipeline == null)
+            UnityToolingSetupState setup;
+            try
             {
-                throw new InvalidOperationException("The Pipeline package is not available yet.");
+                setup = UnityToolingInstaller.LoadSetupState(_projectRoot);
             }
-            if (!_pipelineUnityVersionSupported)
+            catch (Exception)
             {
-                throw new InvalidOperationException("Pipeline setup supports Unity 2022 or Unity 6 and newer.");
-            }
-            if (_pipelineRequiresUnity2022Adaptation)
-            {
-                throw new InvalidOperationException("The Pipeline package must be adapted for Unity 2022 before project setup.");
+                setup = new UnityToolingSetupState();
             }
 
-            UnityToolingInstaller.InstallProjectSupport(_projectRoot, pipeline.ResolvedPath);
-            UnityToolingInstaller.ClearSetupPending(_projectRoot);
-            RefreshPipelineInstallation();
-            MarkChanged();
+            if (setup != null)
+            {
+                return "Unity Editor tooling setup or a backend switch is pending or failed. Do not use any " +
+                       "Unity Editor bridge, including Unity CLI/Pipeline, uloop, Unity MCP, or related skills. " +
+                       "Directly edit only files allowed by UNITY-GUIDE.md and report Editor validation as unavailable.";
+            }
+
+            if (!_activeToolingBackend.HasValue ||
+                !UnityToolingInstaller.IsBackendSupported(
+                    _activeToolingBackend.Value,
+                    UnityEngine.Application.unityVersion) ||
+                UnityToolingInstaller.FindPackage(_activeToolingBackend.Value, _projectRoot) == null ||
+                !UnityToolingInstaller.IsProjectSupportReady(_activeToolingBackend.Value, _projectRoot))
+            {
+                return "No Unity Editor tooling backend is active. Do not use Unity CLI/Pipeline, uloop, Unity MCP, " +
+                       "or related Editor-control skills. Directly edit only files allowed by UNITY-GUIDE.md and " +
+                       "report Editor validation as unavailable.";
+            }
+
+            return _activeToolingBackend.Value == UnityToolingBackend.OfficialPipeline
+                ? "The active Unity Editor backend is officialPipeline. Use only the official Unity CLI with the " +
+                  "com.unity.pipeline package and its unity-pipeline skill. Do not invoke uloop or Unity MCP."
+                : "The active Unity Editor backend is unityCliLoop. Use only the uloop CLI, the " +
+                  "io.github.hatayama.uloopmcp package, and installed uloop skills. Do not invoke unity pipeline, " +
+                  "unity command, or Unity MCP.";
         }
-    }
 
-    internal sealed class PipelinePackageInstallation
-    {
-        internal PipelinePackageInstallation(string resolvedPath, string version)
+        private static string ToolingBackendName(UnityToolingBackend backend)
         {
-            ResolvedPath = resolvedPath;
-            Version = version;
+            return backend == UnityToolingBackend.OfficialPipeline
+                ? "Official Unity CLI + Pipeline"
+                : "Unity CLI Loop";
         }
 
-        internal string ResolvedPath { get; }
-        internal string Version { get; }
+        private static string SetupPhaseStatus(UnityToolingSetupPhase phase)
+        {
+            switch (phase)
+            {
+                case UnityToolingSetupPhase.EnsureCli:
+                    return "Preparing tooling CLI";
+                case UnityToolingSetupPhase.InstallPackage:
+                    return "Preparing tooling package";
+                case UnityToolingSetupPhase.WaitForPackage:
+                    return "Resolving and compiling tooling package";
+                case UnityToolingSetupPhase.InstallSkills:
+                    return "Installing project skills";
+                case UnityToolingSetupPhase.UpdateGuide:
+                    return "Activating backend";
+                case UnityToolingSetupPhase.Failed:
+                    return "Setup failed";
+                default:
+                    return "Setting up tooling";
+            }
+        }
     }
 
     internal static class UnityToolingInstaller
     {
+        internal const string OfficialPipelineToken = "officialPipeline";
+        internal const string UnityCliLoopToken = "unityCliLoop";
+        internal const string LegacyAdaptedPipelineMigrationMessage =
+            "A legacy Unity 2022 adapted Pipeline package is embedded at Packages/com.unity.pipeline. " +
+            "Back up any local changes, remove that directory, and retry so Unity CLI can install the official package.";
+
         private const string PipelinePackageName = "com.unity.pipeline";
-        private const string Pipeline2022Version = "0.6.0-exp.1";
-        private const long Pipeline2022ArchiveBytes = 5380590;
-        private const string Pipeline2022Sha1 = "9bb4172c603cda2626bacac4d4c64bdb8270a3e0";
-        private const string Pipeline2022Url =
-            "https://download.packages.unity.com/com.unity.pipeline/-/com.unity.pipeline-0.6.0-exp.1.tgz";
+        private const string LegacyAdaptedPipelineVersion = "0.6.0-exp.1";
+        private const string UnityCliLoopPackageName = "io.github.hatayama.uloopmcp";
+        private const int UnityCliLoopMinimumMajorVersion = 3;
+        private const string GuideBeginMarker = "<!-- AGENT_FOR_UNITY_TOOLING_BEGIN -->";
+        private const string GuideEndMarker = "<!-- AGENT_FOR_UNITY_TOOLING_END -->";
+        private const string AgentsGuideInstruction =
+            "When performing Unity development, you must read and follow UNITY-GUIDE.md.";
         private const string PipelineLocalExecutionInstruction =
             "For every `unity pipeline` or `unity command` invocation that connects to an Editor or Player on localhost, request the approved local execution context on the first attempt. Do not probe the loopback endpoint from the restricted sandbox first. Use narrow reusable command-prefix approval rules such as `unity pipeline list` and `unity command` when the host supports them.";
 
-        private static readonly string[] CodeAnalysisPluginNames =
+        internal static UnityToolingBackend GetDefaultBackend(string unityVersion)
         {
-            "Microsoft.CodeAnalysis.CSharp.dll.meta",
-            "Microsoft.CodeAnalysis.dll.meta",
-            "System.Collections.Immutable.dll.meta",
-            "System.Reflection.Metadata.dll.meta",
-            "System.Runtime.CompilerServices.Unsafe.dll.meta"
-        };
-
-        internal static Task<UnityCliInstallation> DetectUnityCliAsync()
-        {
-            return Task.Run(DetectUnityCli);
+            return IsUnity6OrNewer(unityVersion)
+                ? UnityToolingBackend.OfficialPipeline
+                : UnityToolingBackend.UnityCliLoop;
         }
 
-        internal static Task<PipelineServerConnection> DetectPipelineServerAsync(string projectRoot)
+        internal static bool IsBackendSupported(UnityToolingBackend backend, string unityVersion)
         {
-            return Task.Run(() => DetectPipelineServer(projectRoot));
-        }
-
-        internal static bool IsPipelineUnityVersionSupported(string unityVersion)
-        {
-            if (string.IsNullOrWhiteSpace(unityVersion))
+            if (!IsUnity2022_3OrNewer(unityVersion))
             {
                 return false;
             }
-            if (unityVersion.StartsWith("2022.", StringComparison.Ordinal))
+
+            return backend == UnityToolingBackend.UnityCliLoop || IsUnity6OrNewer(unityVersion);
+        }
+
+        internal static bool IsUnity6OrNewer(string unityVersion)
+        {
+            return TryParseUnityVersion(unityVersion, out var major, out _) && major >= 6000;
+        }
+
+        internal static bool IsUnity2022_3OrNewer(string unityVersion)
+        {
+            if (!TryParseUnityVersion(unityVersion, out var major, out var minor))
+            {
+                return false;
+            }
+
+            return major > 2022 || major == 2022 && minor >= 3;
+        }
+
+        internal static string BackendToken(UnityToolingBackend backend)
+        {
+            return backend == UnityToolingBackend.OfficialPipeline
+                ? OfficialPipelineToken
+                : UnityCliLoopToken;
+        }
+
+        internal static bool TryParseBackend(string value, out UnityToolingBackend backend)
+        {
+            if (string.Equals(value, OfficialPipelineToken, StringComparison.Ordinal))
+            {
+                backend = UnityToolingBackend.OfficialPipeline;
+                return true;
+            }
+            if (string.Equals(value, UnityCliLoopToken, StringComparison.Ordinal))
+            {
+                backend = UnityToolingBackend.UnityCliLoop;
+                return true;
+            }
+
+            backend = UnityToolingBackend.UnityCliLoop;
+            return false;
+        }
+
+        internal static UnityToolingBackend ParseBackend(string value)
+        {
+            if (!TryParseBackend(value, out var backend))
+            {
+                throw new InvalidDataException("Unknown Unity tooling backend: " + (value ?? "<null>"));
+            }
+
+            return backend;
+        }
+
+        internal static string SetupPhaseToken(UnityToolingSetupPhase phase)
+        {
+            switch (phase)
+            {
+                case UnityToolingSetupPhase.EnsureCli:
+                    return "ensureCli";
+                case UnityToolingSetupPhase.InstallPackage:
+                    return "installPackage";
+                case UnityToolingSetupPhase.WaitForPackage:
+                    return "waitForPackage";
+                case UnityToolingSetupPhase.InstallSkills:
+                    return "installSkills";
+                case UnityToolingSetupPhase.UpdateGuide:
+                    return "updateGuide";
+                case UnityToolingSetupPhase.Failed:
+                    return "failed";
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(phase), phase, null);
+            }
+        }
+
+        internal static UnityToolingSetupPhase ParseSetupPhase(string value)
+        {
+            switch (value)
+            {
+                case "ensureCli":
+                    return UnityToolingSetupPhase.EnsureCli;
+                case "installPackage":
+                    return UnityToolingSetupPhase.InstallPackage;
+                case "waitForPackage":
+                    return UnityToolingSetupPhase.WaitForPackage;
+                case "installSkills":
+                    return UnityToolingSetupPhase.InstallSkills;
+                case "updateGuide":
+                    return UnityToolingSetupPhase.UpdateGuide;
+                case "failed":
+                    return UnityToolingSetupPhase.Failed;
+                default:
+                    throw new InvalidDataException("Unknown Unity tooling setup phase: " + (value ?? "<null>"));
+            }
+        }
+
+        internal static UnityToolingSetupState CreateSetupState(
+            UnityToolingBackend backend,
+            UnityToolingSetupPhase phase)
+        {
+            return new UnityToolingSetupState
+            {
+                backend = BackendToken(backend),
+                phase = SetupPhaseToken(phase),
+                updatedAt = DateTime.UtcNow.ToString("O")
+            };
+        }
+
+        internal static bool HasSetupTimedOut(UnityToolingSetupState state, TimeSpan timeout)
+        {
+            if (state == null ||
+                !DateTime.TryParse(
+                    state.updatedAt,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.RoundtripKind,
+                    out var updatedAt))
             {
                 return true;
             }
 
-            var separator = unityVersion.IndexOf('.');
-            var majorText = separator < 0 ? unityVersion : unityVersion.Substring(0, separator);
-            return int.TryParse(majorText, out var major) && major >= 6000;
+            return DateTime.UtcNow - updatedAt.ToUniversalTime() >= timeout;
         }
 
-        private static PipelineServerConnection DetectPipelineServer(string projectRoot)
+        internal static Task<ToolingCliInstallation> DetectCliAsync(UnityToolingBackend backend)
+        {
+            return Task.Run(() => DetectCli(backend));
+        }
+
+        internal static async Task<ToolingCliInstallation> EnsureCliInstalledAsync(UnityToolingBackend backend)
+        {
+            var current = await DetectCliAsync(backend);
+            if (current.IsAvailable)
+            {
+                return current;
+            }
+
+            var result = backend == UnityToolingBackend.OfficialPipeline
+                ? await RunOfficialUnityCliInstallerAsync()
+                : await RunUnityCliLoopInstallerAsync();
+            if (!result.Success)
+            {
+                return new ToolingCliInstallation(null, null, result.Error);
+            }
+
+            return await DetectCliAsync(backend);
+        }
+
+        internal static async Task InstallPackageAsync(
+            UnityToolingBackend backend,
+            string cliPath,
+            string projectRoot)
+        {
+            var arguments = backend == UnityToolingBackend.OfficialPipeline
+                ? "--non-interactive --no-banner pipeline install --project-path " + QuoteArgument(projectRoot)
+                : "package install";
+            var result = await RunProcessAsync(cliPath, arguments, projectRoot, 180000);
+            if (!result.Success)
+            {
+                throw new InvalidOperationException(result.Error);
+            }
+        }
+
+        internal static async Task InstallProjectSkillsAsync(
+            UnityToolingBackend backend,
+            string cliPath,
+            string projectRoot,
+            string packageRoot)
+        {
+            if (backend == UnityToolingBackend.OfficialPipeline)
+            {
+                var projectSkillsRoot = Path.Combine(projectRoot, ".agents", "skills");
+                var source = Path.Combine(packageRoot, ".claude", "skills", "unity-pipeline");
+                var target = Path.Combine(projectSkillsRoot, "unity-pipeline");
+                if (!File.Exists(Path.Combine(source, "SKILL.md")))
+                {
+                    throw new FileNotFoundException(
+                        "The Pipeline package does not contain its unity-pipeline skill.",
+                        source);
+                }
+
+                CopyDirectory(source, target, true);
+                EnsurePipelineLocalExecutionInstruction(Path.Combine(target, "SKILL.md"));
+            }
+            else
+            {
+                if (string.IsNullOrEmpty(cliPath))
+                {
+                    throw new InvalidOperationException("uloop CLI is unavailable.");
+                }
+
+                var result = await RunProcessAsync(cliPath, "skills install --agents", projectRoot, 180000);
+                if (!result.Success)
+                {
+                    throw new InvalidOperationException(result.Error);
+                }
+
+                var verification = await RunProcessAsync(
+                    cliPath,
+                    "skills list --agents",
+                    projectRoot,
+                    60000);
+                if (!verification.Success)
+                {
+                    throw new InvalidOperationException(
+                        "Could not verify installed Unity CLI Loop skills: " + verification.Error);
+                }
+
+                var status = verification.Output ?? string.Empty;
+                if (status.Contains("(not installed)") ||
+                    status.Contains("(outdated)") ||
+                    status.Contains("(conflict)") ||
+                    !status.Contains("(installed)"))
+                {
+                    throw new InvalidOperationException(
+                        "Unity CLI Loop did not report at least one complete .agents skill installation.");
+                }
+            }
+
+            EnsureAgentsInstruction(Path.Combine(projectRoot, "AGENTS.md"));
+        }
+
+        internal static ToolingPackageInstallation FindPackage(
+            UnityToolingBackend backend,
+            string projectRoot)
+        {
+            var packageName = backend == UnityToolingBackend.OfficialPipeline
+                ? PipelinePackageName
+                : UnityCliLoopPackageName;
+            var embeddedPath = Path.Combine(projectRoot, "Packages", packageName);
+            var embeddedManifest = Path.Combine(embeddedPath, "package.json");
+            if (File.Exists(embeddedManifest))
+            {
+                return CreateCompatiblePackageInstallation(
+                    backend,
+                    embeddedPath,
+                    ReadPackageVersion(embeddedManifest));
+            }
+
+            try
+            {
+                var registered = UnityEditor.PackageManager.PackageInfo.GetAllRegisteredPackages()
+                    .FirstOrDefault(package => string.Equals(package.name, packageName, StringComparison.Ordinal));
+                if (registered != null && !string.IsNullOrEmpty(registered.resolvedPath))
+                {
+                    return CreateCompatiblePackageInstallation(
+                        backend,
+                        registered.resolvedPath,
+                        registered.version);
+                }
+            }
+            catch (Exception)
+            {
+            }
+
+            return null;
+        }
+
+        internal static bool IsLegacyAdaptedPipelinePackage(string projectRoot)
+        {
+            var packageRoot = Path.Combine(projectRoot, "Packages", PipelinePackageName);
+            return IsLegacyAdaptedPipelinePackageAtPath(packageRoot);
+        }
+
+        internal static bool IsProjectSupportReady(UnityToolingBackend backend, string projectRoot)
+        {
+            try
+            {
+                var guidePath = Path.Combine(projectRoot, "UNITY-GUIDE.md");
+                return ManagedGuideMatches(guidePath, backend, "active") &&
+                       IsProjectSkillSetupReady(backend, projectRoot);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        internal static bool IsProjectSkillSetupReady(UnityToolingBackend backend, string projectRoot)
+        {
+            try
+            {
+                var agentsPath = Path.Combine(projectRoot, "AGENTS.md");
+                if (!AgentsInstructionExists(agentsPath))
+                {
+                    return false;
+                }
+
+                var skillsRoot = Path.Combine(projectRoot, ".agents", "skills");
+                if (backend == UnityToolingBackend.OfficialPipeline)
+                {
+                    var skillPath = Path.Combine(skillsRoot, "unity-pipeline", "SKILL.md");
+                    return File.Exists(skillPath) &&
+                           File.ReadAllText(skillPath).Contains(PipelineLocalExecutionInstruction);
+                }
+
+                return Directory.Exists(skillsRoot) &&
+                       Directory.GetDirectories(skillsRoot, "uloop-*", SearchOption.TopDirectoryOnly)
+                           .Any(path => File.Exists(Path.Combine(path, "SKILL.md")));
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        internal static Task<UnityToolingConnection> DetectConnectionAsync(
+            UnityToolingBackend backend,
+            string cliPath,
+            string projectRoot)
+        {
+            return backend == UnityToolingBackend.OfficialPipeline
+                ? Task.Run(() => DetectPipelineServer(projectRoot))
+                : DetectUnityCliLoopConnectionAsync(cliPath, projectRoot);
+        }
+
+        internal static string SetupStatePath(string projectRoot)
+        {
+            return Path.Combine(projectRoot, "Library", "AgentForUnity", "unity-tooling-setup.json");
+        }
+
+        internal static UnityToolingSetupState LoadSetupState(string projectRoot)
+        {
+            var path = SetupStatePath(projectRoot);
+            if (!File.Exists(path))
+            {
+                return null;
+            }
+
+            var state = JsonConvert.DeserializeObject<UnityToolingSetupState>(File.ReadAllText(path));
+            if (state == null)
+            {
+                throw new InvalidDataException("Unity tooling setup state is empty.");
+            }
+
+            ParseBackend(state.backend);
+            ParseSetupPhase(state.phase);
+            return state;
+        }
+
+        internal static void SaveSetupState(string projectRoot, UnityToolingSetupState state)
+        {
+            if (state == null)
+            {
+                throw new ArgumentNullException(nameof(state));
+            }
+
+            ParseBackend(state.backend);
+            ParseSetupPhase(state.phase);
+            var path = SetupStatePath(projectRoot);
+            WriteTextAtomically(path, JsonConvert.SerializeObject(state, Formatting.Indented) + "\n");
+        }
+
+        internal static void ClearSetupState(string projectRoot)
+        {
+            var path = SetupStatePath(projectRoot);
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+
+        internal static void UpdateManagedGuide(
+            string projectRoot,
+            UnityToolingBackend backend,
+            string status)
+        {
+            if (!string.Equals(status, "pending", StringComparison.Ordinal) &&
+                !string.Equals(status, "failed", StringComparison.Ordinal) &&
+                !string.Equals(status, "active", StringComparison.Ordinal))
+            {
+                throw new ArgumentException("Unknown managed guide status: " + status, nameof(status));
+            }
+
+            var targetPath = Path.Combine(projectRoot, "UNITY-GUIDE.md");
+            string existing;
+            if (File.Exists(targetPath))
+            {
+                existing = File.ReadAllText(targetPath);
+            }
+            else
+            {
+                var templatePath = Path.Combine(ResolveAgentForUnityPackageRoot(), "UNITY-GUIDE.md");
+                if (!File.Exists(templatePath))
+                {
+                    throw new FileNotFoundException("Agent for Unity has no UNITY-GUIDE.md template.", templatePath);
+                }
+                existing = File.ReadAllText(templatePath);
+            }
+
+            var newline = existing.Contains("\r\n") ? "\r\n" : "\n";
+            var section = BuildManagedGuideSection(backend, status).Replace("\n", newline);
+            var beginCount = CountOccurrences(existing, GuideBeginMarker);
+            var endCount = CountOccurrences(existing, GuideEndMarker);
+            string updated;
+            if (beginCount == 0 && endCount == 0)
+            {
+                updated = section + newline + newline + existing.TrimStart('\r', '\n');
+            }
+            else
+            {
+                if (beginCount != 1 || endCount != 1)
+                {
+                    throw new InvalidDataException(
+                        "UNITY-GUIDE.md has duplicate or incomplete Agent for Unity tooling markers.");
+                }
+
+                var begin = existing.IndexOf(GuideBeginMarker, StringComparison.Ordinal);
+                var end = existing.IndexOf(GuideEndMarker, StringComparison.Ordinal);
+                if (begin < 0 || end < begin)
+                {
+                    throw new InvalidDataException("UNITY-GUIDE.md has invalid Agent for Unity tooling marker order.");
+                }
+
+                end += GuideEndMarker.Length;
+                updated = existing.Substring(0, begin) + section + existing.Substring(end);
+            }
+
+            WriteTextAtomically(targetPath, updated);
+        }
+
+        private static ToolingCliInstallation DetectCli(UnityToolingBackend backend)
+        {
+            var isWindows = Environment.OSVersion.Platform == PlatformID.Win32NT;
+            var executableName = backend == UnityToolingBackend.OfficialPipeline
+                ? (isWindows ? "unity.exe" : "unity")
+                : (isWindows ? "uloop.exe" : "uloop");
+            var configuredVariable = backend == UnityToolingBackend.OfficialPipeline
+                ? "UNITY_CLI_EXECUTABLE"
+                : "ULOOP_CLI_EXECUTABLE";
+            var candidates = new List<string>();
+            AddCandidate(candidates, Environment.GetEnvironmentVariable(configuredVariable));
+
+            var path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+            foreach (var directory in path.Split(new[] { Path.PathSeparator }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                AddCandidate(candidates, Path.Combine(directory.Trim().Trim('"'), executableName));
+            }
+
+            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (backend == UnityToolingBackend.OfficialPipeline)
+            {
+                AddCandidate(candidates, Path.Combine(userProfile, ".unity", "bin", executableName));
+                if (!isWindows)
+                {
+                    AddCandidate(candidates, "/opt/homebrew/bin/unity");
+                    AddCandidate(candidates, "/usr/local/bin/unity");
+                }
+            }
+            else
+            {
+                var configuredInstallDirectory = Environment.GetEnvironmentVariable("ULOOP_INSTALL_DIR");
+                if (!string.IsNullOrWhiteSpace(configuredInstallDirectory))
+                {
+                    AddCandidate(candidates, Path.Combine(configuredInstallDirectory, executableName));
+                }
+                AddCandidate(candidates, Path.Combine(userProfile, ".local", "bin", executableName));
+                if (isWindows)
+                {
+                    var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                    AddCandidate(candidates, Path.Combine(localAppData, "Programs", "uloop", "bin", executableName));
+                }
+                else
+                {
+                    AddCandidate(candidates, "/opt/homebrew/bin/uloop");
+                    AddCandidate(candidates, "/usr/local/bin/uloop");
+                }
+            }
+
+            string unityCliLoopProbeDirectory = null;
+            if (backend == UnityToolingBackend.UnityCliLoop)
+            {
+                try
+                {
+                    unityCliLoopProbeDirectory = Path.Combine(
+                        Path.GetTempPath(),
+                        "AgentForUnity",
+                        "CliProbe");
+                    Directory.CreateDirectory(unityCliLoopProbeDirectory);
+                }
+                catch (Exception exception)
+                {
+                    return new ToolingCliInstallation(
+                        null,
+                        null,
+                        "Could not create the uloop CLI probe directory: " + exception.Message);
+                }
+            }
+
+            string firstError = null;
+            foreach (var candidate in candidates.Distinct(StringComparer.Ordinal))
+            {
+                if (!File.Exists(candidate))
+                {
+                    continue;
+                }
+
+                var versionArgument = backend == UnityToolingBackend.OfficialPipeline ? "--version" : "-v";
+                var workingDirectory = backend == UnityToolingBackend.UnityCliLoop
+                    ? unityCliLoopProbeDirectory
+                    : null;
+                var result = RunProcess(candidate, versionArgument, workingDirectory, 10000);
+                if (result.Success)
+                {
+                    var version = FirstNonEmptyLine(result.Output);
+                    if (backend == UnityToolingBackend.UnityCliLoop &&
+                        !IsVersionAtLeastMajor(version, UnityCliLoopMinimumMajorVersion))
+                    {
+                        if (firstError == null)
+                        {
+                            firstError = "uloop CLI 3 or newer is required.";
+                        }
+                        continue;
+                    }
+
+                    return new ToolingCliInstallation(candidate, version, null);
+                }
+
+                if (firstError == null)
+                {
+                    firstError = result.Error;
+                }
+            }
+
+            var name = backend == UnityToolingBackend.OfficialPipeline ? "Unity CLI" : "uloop CLI";
+            return new ToolingCliInstallation(null, null, firstError ?? name + " was not found.");
+        }
+
+        private static ToolingPackageInstallation CreateCompatiblePackageInstallation(
+            UnityToolingBackend backend,
+            string resolvedPath,
+            string version)
+        {
+            if (backend == UnityToolingBackend.OfficialPipeline &&
+                IsLegacyAdaptedPipelinePackageAtPath(resolvedPath))
+            {
+                return null;
+            }
+            if (backend == UnityToolingBackend.UnityCliLoop &&
+                !IsVersionAtLeastMajor(version, UnityCliLoopMinimumMajorVersion))
+            {
+                return null;
+            }
+
+            return new ToolingPackageInstallation(resolvedPath, version);
+        }
+
+        private static bool IsLegacyAdaptedPipelinePackageAtPath(string packageRoot)
+        {
+            if (string.IsNullOrEmpty(packageRoot))
+            {
+                return false;
+            }
+
+            var manifestPath = Path.Combine(packageRoot, "package.json");
+            if (!File.Exists(manifestPath))
+            {
+                return false;
+            }
+
+            try
+            {
+                var manifest = JObject.Parse(File.ReadAllText(manifestPath));
+                return string.Equals(
+                           manifest.Value<string>("name"),
+                           PipelinePackageName,
+                           StringComparison.Ordinal) &&
+                       string.Equals(
+                           manifest.Value<string>("version"),
+                           LegacyAdaptedPipelineVersion,
+                           StringComparison.Ordinal) &&
+                       string.Equals(manifest.Value<string>("unity"), "2022.3", StringComparison.Ordinal);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static bool IsVersionAtLeastMajor(string value, int minimumMajor)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+
+            var normalized = value.Trim().TrimStart('v', 'V');
+            var separator = normalized.IndexOfAny(new[] { '.', '-', '+' });
+            var majorText = separator >= 0 ? normalized.Substring(0, separator) : normalized;
+            return int.TryParse(majorText, NumberStyles.None, CultureInfo.InvariantCulture, out var major) &&
+                   major >= minimumMajor;
+        }
+
+        private static Task<ProcessResult> RunOfficialUnityCliInstallerAsync()
+        {
+            if (Environment.OSVersion.Platform == PlatformID.Win32NT)
+            {
+                const string command =
+                    "$env:UNITY_CLI_CHANNEL='beta'; irm https://public-cdn.cloud.unity3d.com/hub/prod/cli/install.ps1 | iex";
+                return RunProcessAsync(
+                    "powershell.exe",
+                    "-NoProfile -ExecutionPolicy Bypass -Command " + QuoteArgument(command),
+                    null,
+                    180000);
+            }
+
+            const string unixCommand =
+                "curl -fsSL https://public-cdn.cloud.unity3d.com/hub/prod/cli/install.sh | UNITY_CLI_CHANNEL=beta bash";
+            return RunProcessAsync("/bin/bash", "-lc " + QuoteArgument(unixCommand), null, 180000);
+        }
+
+        private static Task<ProcessResult> RunUnityCliLoopInstallerAsync()
+        {
+            if (Environment.OSVersion.Platform == PlatformID.Win32NT)
+            {
+                const string command =
+                    "irm https://raw.githubusercontent.com/hatayama/unity-cli-loop/main/scripts/install.ps1 | iex";
+                return RunProcessAsync(
+                    "powershell.exe",
+                    "-NoProfile -ExecutionPolicy Bypass -Command " + QuoteArgument(command),
+                    null,
+                    180000);
+            }
+
+            const string unixCommand =
+                "curl -fsSL https://raw.githubusercontent.com/hatayama/unity-cli-loop/main/scripts/install.sh | sh";
+            return RunProcessAsync("/bin/bash", "-lc " + QuoteArgument(unixCommand), null, 180000);
+        }
+
+        private static async Task<UnityToolingConnection> DetectUnityCliLoopConnectionAsync(
+            string cliPath,
+            string projectRoot)
+        {
+            if (string.IsNullOrEmpty(cliPath) || !File.Exists(cliPath))
+            {
+                return new UnityToolingConnection(false, null, "Unavailable · uloop CLI missing");
+            }
+
+            var result = await RunProcessAsync(cliPath, "list --names", projectRoot, 15000);
+            if (!result.Success)
+            {
+                return new UnityToolingConnection(false, cliPath, "Unreachable · " + result.Error);
+            }
+
+            var toolCount = result.Output
+                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .Count(line => !string.IsNullOrWhiteSpace(line));
+            return new UnityToolingConnection(
+                true,
+                cliPath,
+                "Reachable · " + toolCount + " commands");
+        }
+
+        private static UnityToolingConnection DetectPipelineServer(string projectRoot)
         {
             var descriptorPath = Path.Combine(projectRoot, "Library", "Pipeline", ".unity-pipeline-port");
             if (!File.Exists(descriptorPath))
             {
-                return new PipelineServerConnection(false, null, "Unavailable · Instance descriptor missing");
+                return new UnityToolingConnection(false, null, "Unavailable · Instance descriptor missing");
             }
 
             int port;
@@ -520,12 +1671,12 @@ namespace AgentForUnity.Editor.Application
             }
             catch (Exception)
             {
-                return new PipelineServerConnection(false, null, "Unavailable · Invalid instance descriptor");
+                return new UnityToolingConnection(false, null, "Unavailable · Invalid instance descriptor");
             }
 
             if (port <= 0 || port > ushort.MaxValue || string.IsNullOrWhiteSpace(token))
             {
-                return new PipelineServerConnection(false, null, "Unavailable · Invalid instance descriptor");
+                return new UnityToolingConnection(false, null, "Unavailable · Invalid instance descriptor");
             }
 
             var endpoint = "http://127.0.0.1:" + port + "/api/status";
@@ -541,13 +1692,10 @@ namespace AgentForUnity.Editor.Application
                 {
                     if (response.StatusCode == HttpStatusCode.OK)
                     {
-                        return new PipelineServerConnection(
-                            true,
-                            endpoint,
-                            "Reachable · 127.0.0.1:" + port);
+                        return new UnityToolingConnection(true, endpoint, "Reachable · 127.0.0.1:" + port);
                     }
 
-                    return new PipelineServerConnection(
+                    return new UnityToolingConnection(
                         false,
                         endpoint,
                         "Unreachable · HTTP " + (int)response.StatusCode);
@@ -559,714 +1707,92 @@ namespace AgentForUnity.Editor.Application
                 {
                     if (response?.StatusCode == HttpStatusCode.Unauthorized)
                     {
-                        return new PipelineServerConnection(
-                            false,
-                            endpoint,
-                            "Unreachable · Authentication failed");
+                        return new UnityToolingConnection(false, endpoint, "Unreachable · Authentication failed");
                     }
-
                     if (response != null)
                     {
-                        return new PipelineServerConnection(
+                        return new UnityToolingConnection(
                             false,
                             endpoint,
                             "Unreachable · HTTP " + (int)response.StatusCode);
                     }
                 }
 
-                return new PipelineServerConnection(false, endpoint, "Unreachable · " + exception.Status);
+                return new UnityToolingConnection(false, endpoint, "Unreachable · " + exception.Status);
             }
             catch (Exception exception)
             {
-                return new PipelineServerConnection(false, endpoint, "Unreachable · " + exception.Message);
+                return new UnityToolingConnection(false, endpoint, "Unreachable · " + exception.Message);
             }
         }
 
-        internal static async Task<UnityCliInstallation> EnsureUnityCliInstalledAsync()
+        private static bool ManagedGuideMatches(
+            string path,
+            UnityToolingBackend backend,
+            string status)
         {
-            var current = await DetectUnityCliAsync();
-            if (current.IsAvailable)
+            if (!File.Exists(path))
             {
-                return current;
+                return false;
             }
 
-            var result = await RunUnityCliInstallerAsync();
-            if (!result.Success)
+            var text = File.ReadAllText(path);
+            if (CountOccurrences(text, GuideBeginMarker) != 1 ||
+                CountOccurrences(text, GuideEndMarker) != 1)
             {
-                return new UnityCliInstallation(null, null, result.Error);
+                return false;
             }
 
-            return await DetectUnityCliAsync();
+            var begin = text.IndexOf(GuideBeginMarker, StringComparison.Ordinal);
+            var end = text.IndexOf(GuideEndMarker, StringComparison.Ordinal);
+            if (begin < 0 || end <= begin)
+            {
+                return false;
+            }
+
+            var managed = text.Substring(begin, end - begin);
+            return managed.Contains("**Tooling status: `" + status + "`**") &&
+                   managed.Contains("**Active backend: `" + BackendToken(backend) + "`");
         }
 
-        internal static async Task InstallPipelineWithCliAsync(string cliPath, string projectRoot)
+        private static string BuildManagedGuideSection(UnityToolingBackend backend, string status)
         {
-            var result = await RunProcessAsync(
-                cliPath,
-                "--non-interactive --no-banner pipeline install --project-path " + QuoteArgument(projectRoot),
-                projectRoot,
-                180000);
-            if (!result.Success)
+            var builder = new StringBuilder();
+            builder.AppendLine(GuideBeginMarker);
+            builder.AppendLine("**Tooling status: `" + status + "`**");
+            builder.AppendLine();
+            if (!string.Equals(status, "active", StringComparison.Ordinal))
             {
-                throw new InvalidOperationException(result.Error);
+                builder.AppendLine("**Requested backend: `" + BackendToken(backend) + "`**");
+                builder.AppendLine();
+                builder.AppendLine("- This managed section overrides every conflicting Unity Editor tooling instruction elsewhere in this file, including any later rule that says Pipeline or uloop is required.");
+                builder.AppendLine("- Do not use any Unity Editor bridge while tooling setup or a backend switch is pending or failed.");
+                builder.AppendLine("- Installed CLIs, packages, servers, and skills from earlier setups remain inactive. Do not use Unity CLI/Pipeline, Unity CLI Loop, Unity MCP, or related Editor-control skills.");
             }
-        }
-
-        internal static async Task InstallUnity2022PipelineAsync(string projectRoot)
-        {
-            var packageRoot = Path.Combine(projectRoot, "Packages", PipelinePackageName);
-            if (!Directory.Exists(packageRoot))
+            else if (backend == UnityToolingBackend.OfficialPipeline)
             {
-                var stagingPath = packageRoot + ".agentforunity-installing";
-                var temporaryRoot = Path.Combine(Path.GetTempPath(), "agentforunity-pipeline-" + Guid.NewGuid().ToString("N"));
-                var archivePath = Path.Combine(temporaryRoot, PipelinePackageName + ".tgz");
-                var extractedPath = Path.Combine(temporaryRoot, "package");
-                Directory.CreateDirectory(extractedPath);
-                try
-                {
-                    await DownloadPipelineArchiveAsync(archivePath);
-                    await ExtractArchiveAsync(archivePath, extractedPath);
-                    ValidatePipelinePackage(extractedPath);
-                    TryDeleteDirectory(stagingPath);
-                    CopyDirectory(extractedPath, stagingPath, false);
-                    ValidatePipelinePackage(stagingPath);
-                    Directory.Move(stagingPath, packageRoot);
-                }
-                finally
-                {
-                    TryDeleteDirectory(stagingPath);
-                    TryDeleteDirectory(temporaryRoot);
-                }
+                builder.AppendLine("**Active backend: `" + OfficialPipelineToken + "` (Unity CLI + Pipeline)**");
+                builder.AppendLine();
+                builder.AppendLine("- This managed section overrides every conflicting Unity Editor tooling instruction elsewhere in this file. Any later unqualified Pipeline or uloop requirement is legacy and cannot activate another backend.");
+                builder.AppendLine("- Use only the official Unity CLI, `com.unity.pipeline`, and the installed `unity-pipeline` skill for Unity Editor operations.");
+                builder.AppendLine("- Do not use `uloop`, Unity CLI Loop skills, Unity MCP, or any other Editor bridge.");
+                builder.AppendLine("- For localhost `unity pipeline` or `unity command` calls, request the approved local execution context on the first attempt.");
             }
             else
             {
-                ValidatePipelinePackage(packageRoot);
+                builder.AppendLine("**Active backend: `" + UnityCliLoopToken + "` (Unity CLI Loop)**");
+                builder.AppendLine();
+                builder.AppendLine("- This managed section overrides every conflicting Unity Editor tooling instruction elsewhere in this file. Ignore later legacy text such as `Pipeline Is Required`; it cannot activate Pipeline.");
+                builder.AppendLine("- Use only `uloop`, `io.github.hatayama.uloopmcp`, and the installed `uloop-*` skills for Unity Editor operations.");
+                builder.AppendLine("- Do not use `unity pipeline`, `unity command`, Pipeline skills, Unity MCP, or any other Editor bridge.");
+                builder.AppendLine("- Use `uloop list --names` in the Unity project root as the live capability and connectivity check.");
             }
-
-            PatchPipelineForUnity2022(packageRoot);
-        }
-
-        internal static bool IsUnity2022PipelineAdapted(string projectRoot)
-        {
-            var packageRoot = Path.Combine(projectRoot, "Packages", PipelinePackageName);
-            var manifestPath = Path.Combine(packageRoot, "package.json");
-            var assetsPath = Path.Combine(packageRoot, "Editor", "Commands", "Assets", "AssetCommands.cs");
-            var materialsPath = Path.Combine(packageRoot, "Editor", "Commands", "Materials", "MaterialCommands.cs");
-            var analyticsPath = Path.Combine(packageRoot, "Editor", "PipelineAnalytics.cs");
-            var serverPath = Path.Combine(packageRoot, "Runtime", "Common", "BasePipelineServer.cs");
-            if (!File.Exists(manifestPath) ||
-                !File.Exists(assetsPath) ||
-                !File.Exists(materialsPath) ||
-                !File.Exists(analyticsPath) ||
-                !File.Exists(serverPath))
-            {
-                return false;
-            }
-
-            try
-            {
-                var package = JObject.Parse(File.ReadAllText(manifestPath));
-                if (!string.Equals(package.Value<string>("name"), PipelinePackageName, StringComparison.Ordinal) ||
-                    !string.Equals(package.Value<string>("version"), Pipeline2022Version, StringComparison.Ordinal) ||
-                    !string.Equals(package.Value<string>("unity"), "2022.3", StringComparison.Ordinal) ||
-                    !File.ReadAllText(assetsPath).Contains("using PhysicsMaterialCompat") ||
-                    !File.ReadAllText(materialsPath).Contains("GetRawRenderQueue(Material material)") ||
-                    !IsUnity2022AnalyticsAdapted(File.ReadAllText(analyticsPath)) ||
-                    !IsPipelineDescriptorSelfHealingAdapted(File.ReadAllText(serverPath)))
-                {
-                    return false;
-                }
-
-                if (!IsEditorOnlyAssembly(Path.Combine(packageRoot, "CodeGen", "Unity.Pipeline.CodeGen.asmdef")) ||
-                    !IsEditorOnlyAssembly(Path.Combine(packageRoot, "Runtime", "Unity.Pipeline.asmdef")) ||
-                    !IsEditorOnlyAssembly(Path.Combine(packageRoot, "Runtime", "IlInterpreter", "Unity.Pipeline.IlInterpreter.asmdef")) ||
-                    !IsUnity2022EditorAssemblyAdapted(Path.Combine(packageRoot, "Editor", "Unity.Pipeline.Editor.asmdef")) ||
-                    !IsUnity2022TestAssemblyAdapted(Path.Combine(packageRoot, "Tests", "Editor", "Unity.Pipeline.Tests.Editor.asmdef")) ||
-                    !IsUnity2022TestAssemblyAdapted(Path.Combine(packageRoot, "Tests", "Runtime", "Unity.Pipeline.Tests.Runtime.asmdef")))
-                {
-                    return false;
-                }
-
-                var pluginsRoot = Path.Combine(packageRoot, "Runtime", "Plugins", "CodeAnalysis");
-                return CodeAnalysisPluginNames.All(pluginName =>
-                    IsUnity2022EditorOnlyPlugin(Path.Combine(pluginsRoot, pluginName)));
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-        }
-
-        internal static PipelinePackageInstallation FindPipelinePackage(string projectRoot)
-        {
-            var embeddedPath = Path.Combine(projectRoot, "Packages", PipelinePackageName);
-            var embeddedManifest = Path.Combine(embeddedPath, "package.json");
-            if (File.Exists(embeddedManifest))
-            {
-                return new PipelinePackageInstallation(embeddedPath, ReadPackageVersion(embeddedManifest));
-            }
-
-            try
-            {
-                var registered = UnityEditor.PackageManager.PackageInfo.GetAllRegisteredPackages()
-                    .FirstOrDefault(package => string.Equals(package.name, PipelinePackageName, StringComparison.Ordinal));
-                if (registered != null)
-                {
-                    return new PipelinePackageInstallation(registered.resolvedPath, registered.version);
-                }
-            }
-            catch (Exception)
-            {
-            }
-
-            return null;
-        }
-
-        internal static void InstallProjectSupport(string projectRoot, string pipelineRoot)
-        {
-            var projectSkillsRoot = Path.Combine(projectRoot, ".agents", "skills");
-            var pipelineSkillSource = Path.Combine(pipelineRoot, ".claude", "skills", "unity-pipeline");
-            var pipelineSkillTarget = Path.Combine(projectSkillsRoot, "unity-pipeline");
-            if (!File.Exists(Path.Combine(pipelineSkillSource, "SKILL.md")))
-            {
-                throw new FileNotFoundException("The Pipeline package does not contain its unity-pipeline skill.", pipelineSkillSource);
-            }
-
-            CopyDirectory(pipelineSkillSource, pipelineSkillTarget, true);
-            EnsurePipelineLocalExecutionInstruction(Path.Combine(pipelineSkillTarget, "SKILL.md"));
-
-            if (UnityEngine.Application.unityVersion.StartsWith("2022.", StringComparison.Ordinal))
-            {
-                var packageRoot = ResolveAgentForUnityPackageRoot();
-                var compatibilitySkillSource = Path.Combine(packageRoot, ".agents", "skills", "unity-pipeline-2022");
-                var compatibilitySkillTarget = Path.Combine(projectSkillsRoot, "unity-pipeline-2022");
-                CopyDirectory(compatibilitySkillSource, compatibilitySkillTarget, true);
-            }
-
-            var agentPackageRoot = ResolveAgentForUnityPackageRoot();
-            var guideSource = Path.Combine(agentPackageRoot, "UNITY-GUIDE.md");
-            var guideTarget = Path.Combine(projectRoot, "UNITY-GUIDE.md");
-            if (!File.Exists(guideTarget))
-            {
-                File.Copy(guideSource, guideTarget);
-            }
-
-            EnsureAgentsInstruction(Path.Combine(projectRoot, "AGENTS.md"));
-        }
-
-        internal static bool IsProjectSetupComplete(string projectRoot)
-        {
-            var skillsRoot = Path.Combine(projectRoot, ".agents", "skills");
-            var pipelineSkillPath = Path.Combine(skillsRoot, "unity-pipeline", "SKILL.md");
-            if (!File.Exists(pipelineSkillPath) ||
-                !PipelineLocalExecutionInstructionExists(pipelineSkillPath) ||
-                !File.Exists(Path.Combine(projectRoot, "UNITY-GUIDE.md")) ||
-                !AgentsInstructionExists(Path.Combine(projectRoot, "AGENTS.md")))
-            {
-                return false;
-            }
-
-            return !UnityEngine.Application.unityVersion.StartsWith("2022.", StringComparison.Ordinal) ||
-                   File.Exists(Path.Combine(skillsRoot, "unity-pipeline-2022", "SKILL.md"));
-        }
-
-        internal static string PendingSetupPath(string projectRoot)
-        {
-            return Path.Combine(projectRoot, "Library", "AgentForUnity", "pipeline-setup.pending");
-        }
-
-        internal static void MarkSetupPending(string projectRoot)
-        {
-            var path = PendingSetupPath(projectRoot);
-            Directory.CreateDirectory(Path.GetDirectoryName(path) ?? projectRoot);
-            File.WriteAllText(path, DateTime.UtcNow.ToString("O"), new UTF8Encoding(false));
-        }
-
-        internal static void ClearSetupPending(string projectRoot)
-        {
-            var path = PendingSetupPath(projectRoot);
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
-
-        private static UnityCliInstallation DetectUnityCli()
-        {
-            var executableName = Environment.OSVersion.Platform == PlatformID.Win32NT ? "unity.exe" : "unity";
-            var candidates = new List<string>();
-            var configuredPath = Environment.GetEnvironmentVariable("UNITY_CLI_EXECUTABLE");
-            AddCandidate(candidates, configuredPath);
-
-            var path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-            foreach (var directory in path.Split(new[] { Path.PathSeparator }, StringSplitOptions.RemoveEmptyEntries))
-            {
-                AddCandidate(candidates, Path.Combine(directory.Trim(), executableName));
-            }
-
-            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            AddCandidate(candidates, Path.Combine(userProfile, ".unity", "bin", executableName));
-            if (Environment.OSVersion.Platform != PlatformID.Win32NT)
-            {
-                AddCandidate(candidates, "/opt/homebrew/bin/unity");
-                AddCandidate(candidates, "/usr/local/bin/unity");
-            }
-
-            string firstError = null;
-            foreach (var candidate in candidates.Distinct(StringComparer.Ordinal))
-            {
-                if (!File.Exists(candidate))
-                {
-                    continue;
-                }
-
-                var result = RunProcess(candidate, "--version", null, 10000);
-                if (result.Success)
-                {
-                    return new UnityCliInstallation(candidate, FirstNonEmptyLine(result.Output), null);
-                }
-
-                if (firstError == null)
-                {
-                    firstError = result.Error;
-                }
-            }
-
-            return new UnityCliInstallation(null, null, firstError ?? "Unity CLI was not found.");
-        }
-
-        private static Task<ProcessResult> RunUnityCliInstallerAsync()
-        {
-            if (Environment.OSVersion.Platform == PlatformID.Win32NT)
-            {
-                const string command =
-                    "$env:UNITY_CLI_CHANNEL='beta'; irm https://public-cdn.cloud.unity3d.com/hub/prod/cli/install.ps1 | iex";
-                return RunProcessAsync("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -Command " + QuoteArgument(command), null, 180000);
-            }
-
-            const string unixCommand =
-                "curl -fsSL https://public-cdn.cloud.unity3d.com/hub/prod/cli/install.sh | UNITY_CLI_CHANNEL=beta bash";
-            return RunProcessAsync("/bin/bash", "-lc " + QuoteArgument(unixCommand), null, 180000);
-        }
-
-        private static async Task DownloadPipelineArchiveAsync(string archivePath)
-        {
-            ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
-            using (var destination = new FileStream(archivePath, FileMode.Create, FileAccess.Write, FileShare.None))
-            {
-                const long chunkSize = 1024 * 1024;
-                for (long start = 0; start < Pipeline2022ArchiveBytes; start += chunkSize)
-                {
-                    var end = Math.Min(start + chunkSize - 1, Pipeline2022ArchiveBytes - 1);
-                    await DownloadRangeAsync(start, end, destination);
-                }
-            }
-
-            var actualLength = new FileInfo(archivePath).Length;
-            if (actualLength != Pipeline2022ArchiveBytes)
-            {
-                throw new InvalidDataException(
-                    $"Pipeline archive length mismatch. Expected {Pipeline2022ArchiveBytes}, received {actualLength}.");
-            }
-
-            using (var sha1 = SHA1.Create())
-            using (var input = File.OpenRead(archivePath))
-            {
-                var hash = BitConverter.ToString(sha1.ComputeHash(input)).Replace("-", string.Empty).ToLowerInvariant();
-                if (!string.Equals(hash, Pipeline2022Sha1, StringComparison.Ordinal))
-                {
-                    throw new InvalidDataException("Pipeline archive checksum mismatch.");
-                }
-            }
-
-            using (var input = File.OpenRead(archivePath))
-            using (var gzip = new GZipStream(input, CompressionMode.Decompress))
-            {
-                var buffer = new byte[8192];
-                while (gzip.Read(buffer, 0, buffer.Length) > 0)
-                {
-                }
-            }
-        }
-
-        private static async Task DownloadRangeAsync(long start, long end, Stream destination)
-        {
-            Exception lastError = null;
-            for (var attempt = 0; attempt < 3; attempt++)
-            {
-                try
-                {
-                    var request = WebRequest.CreateHttp(Pipeline2022Url);
-                    request.Method = "GET";
-                    request.AddRange(start, end);
-                    request.Timeout = 60000;
-                    request.ReadWriteTimeout = 60000;
-                    using (var response = (HttpWebResponse)await request.GetResponseAsync())
-                    using (var input = response.GetResponseStream())
-                    using (var range = new MemoryStream())
-                    {
-                        if (response.StatusCode != HttpStatusCode.PartialContent)
-                        {
-                            throw new InvalidDataException("The Pipeline CDN did not honor the requested byte range.");
-                        }
-
-                        var expected = end - start + 1;
-                        var copied = await CopyExactlyAsync(input, range, expected);
-                        if (copied != expected)
-                        {
-                            throw new EndOfStreamException($"Pipeline range {start}-{end} was truncated.");
-                        }
-
-                        range.Position = 0;
-                        await range.CopyToAsync(destination);
-                    }
-
-                    return;
-                }
-                catch (Exception exception)
-                {
-                    lastError = exception;
-                }
-            }
-
-            throw new InvalidOperationException($"Could not download Pipeline bytes {start}-{end}.", lastError);
-        }
-
-        private static async Task<long> CopyExactlyAsync(Stream input, Stream output, long expected)
-        {
-            var buffer = new byte[81920];
-            long copied = 0;
-            while (copied < expected)
-            {
-                var read = await input.ReadAsync(buffer, 0, (int)Math.Min(buffer.Length, expected - copied));
-                if (read <= 0)
-                {
-                    break;
-                }
-
-                await output.WriteAsync(buffer, 0, read);
-                copied += read;
-            }
-
-            return copied;
-        }
-
-        private static async Task ExtractArchiveAsync(string archivePath, string destination)
-        {
-            var executable = Environment.OSVersion.Platform == PlatformID.Win32NT ? "tar.exe" : "/usr/bin/tar";
-            var result = await RunProcessAsync(
-                executable,
-                "-xzf " + QuoteArgument(archivePath) + " --strip-components=1 -C " + QuoteArgument(destination),
-                null,
-                60000);
-            if (!result.Success)
-            {
-                throw new InvalidOperationException("Could not extract the Pipeline package: " + result.Error);
-            }
-        }
-
-        private static void PatchPipelineForUnity2022(string packageRoot)
-        {
-            PatchPackageManifest(packageRoot);
-            PatchPhysicsMaterial(Path.Combine(packageRoot, "Editor", "Commands", "Assets", "AssetCommands.cs"));
-            PatchMaterialRenderQueue(Path.Combine(packageRoot, "Editor", "Commands", "Materials", "MaterialCommands.cs"));
-            PatchAnalytics(Path.Combine(packageRoot, "Editor", "PipelineAnalytics.cs"));
-            PatchPipelineDescriptorSelfHealing(Path.Combine(packageRoot, "Runtime", "Common", "BasePipelineServer.cs"));
-            PatchAssemblyDefinitions(packageRoot);
-            PatchCodeAnalysisPlugins(packageRoot);
-        }
-
-        private static void PatchPackageManifest(string packageRoot)
-        {
-            var path = Path.Combine(packageRoot, "package.json");
-            var package = JObject.Parse(File.ReadAllText(path));
-            package["unity"] = "2022.3";
-            WriteText(path, package.ToString(Newtonsoft.Json.Formatting.None));
-        }
-
-        private static void PatchPhysicsMaterial(string path)
-        {
-            var text = File.ReadAllText(path);
-            const string alias =
-                "#if UNITY_6000_0_OR_NEWER\nusing PhysicsMaterialCompat = UnityEngine.PhysicsMaterial;\n#else\nusing PhysicsMaterialCompat = UnityEngine.PhysicMaterial;\n#endif\n";
-            if (!text.Contains("using PhysicsMaterialCompat"))
-            {
-                text = ReplaceRequired(
-                    text,
-                    "using Object = UnityEngine.Object;\n",
-                    "using Object = UnityEngine.Object;\n" + alias,
-                    "PhysicsMaterial alias");
-            }
-
-            text = text.Replace("typeof(PhysicsMaterial)", "typeof(PhysicsMaterialCompat)");
-            text = text.Replace("new PhysicsMaterial\n", "new PhysicsMaterialCompat\n");
-            WriteText(path, text);
-        }
-
-        private static void PatchMaterialRenderQueue(string path)
-        {
-            var text = File.ReadAllText(path);
-            if (!text.Contains("GetRawRenderQueue(Material material)"))
-            {
-                text = ReplaceRequired(text, "RenderQueue = mat.rawRenderQueue,", "RenderQueue = GetRawRenderQueue(mat),", "raw render queue call");
-                const string marker = "            return result;\n        }\n\n        [CliCommand(\"set_material_properties\"";
-                const string replacement =
-                    "            return result;\n        }\n\n" +
-                    "        private static int GetRawRenderQueue(Material material)\n" +
-                    "        {\n" +
-                    "#if UNITY_6000_0_OR_NEWER\n" +
-                    "            return material.rawRenderQueue;\n" +
-                    "#else\n" +
-                    "            var customQueue = new SerializedObject(material).FindProperty(\"m_CustomRenderQueue\");\n" +
-                    "            return customQueue != null ? customQueue.intValue : material.renderQueue;\n" +
-                    "#endif\n" +
-                    "        }\n\n" +
-                    "        [CliCommand(\"set_material_properties\"";
-                text = ReplaceRequired(text, marker, replacement, "Unity 2022 render queue compatibility");
-            }
-
-            WriteText(path, text);
-        }
-
-        private static void PatchAnalytics(string path)
-        {
-            var text = File.ReadAllText(path);
-            if (IsUnity2022AnalyticsAdapted(text))
-            {
-                return;
-            }
-
-            text = ReplaceRequired(
-                text,
-                "namespace Unity.Pipeline.Editor\n{\n    /// <summary>",
-                "namespace Unity.Pipeline.Editor\n{\n#if UNITY_6000_0_OR_NEWER\n    /// <summary>",
-                "Pipeline analytics version guard");
-            var finalClassClose = text.LastIndexOf("    }\n}", StringComparison.Ordinal);
-            if (finalClassClose < 0)
-            {
-                throw new InvalidDataException("Could not locate the PipelineAnalytics class terminator.");
-            }
-
-            const string stub =
-                "    }\n" +
-                "#else\n" +
-                "    /// <summary>Unity 2022 compatibility hooks without Unity 6 editor analytics.</summary>\n" +
-                "    internal static class PipelineAnalytics\n" +
-                "    {\n" +
-                "        internal static void RecordCommandExecuted(in CommandExecutionInfo info) { }\n" +
-                "        internal static void SendSessionStoppedIfStarted() { }\n" +
-                "    }\n" +
-                "#endif\n" +
-                "}";
-            text = text.Substring(0, finalClassClose) + stub + text.Substring(finalClassClose + "    }\n}".Length);
-            WriteText(path, text);
-        }
-
-        private static bool IsUnity2022AnalyticsAdapted(string text)
-        {
-            var normalized = (text ?? string.Empty).Replace("\r\n", "\n");
-            const string guard = "namespace Unity.Pipeline.Editor\n{\n#if UNITY_6000_0_OR_NEWER\n";
-            var guardIndex = normalized.IndexOf(guard, StringComparison.Ordinal);
-            var endifIndex = normalized.LastIndexOf("\n#endif\n}", StringComparison.Ordinal);
-            if (guardIndex < 0 || endifIndex < 0)
-            {
-                return false;
-            }
-
-            var elseIndex = normalized.LastIndexOf("\n#else\n", endifIndex, StringComparison.Ordinal);
-            if (elseIndex <= guardIndex)
-            {
-                return false;
-            }
-
-            var fallback = normalized.Substring(elseIndex, endifIndex - elseIndex);
-            return fallback.Contains("internal static class PipelineAnalytics") &&
-                   fallback.Contains("RecordCommandExecuted(in CommandExecutionInfo info)") &&
-                   fallback.Contains("SendSessionStoppedIfStarted()");
-        }
-
-        private static void PatchPipelineDescriptorSelfHealing(string path)
-        {
-            var text = File.ReadAllText(path);
-            if (!text.Contains("Keep discovery metadata alive even when no client is polling /api/status."))
-            {
-                text = ReplaceRequired(
-                    text,
-                    "            if (m_HttpListener != null && m_HttpListener.IsListening)\n                return; // healthy\n",
-                    "            if (m_HttpListener != null && m_HttpListener.IsListening)\n" +
-                    "            {\n" +
-                    "                // Keep discovery metadata alive even when no client is polling /api/status.\n" +
-                    "                // Rewriting also recreates a descriptor removed while the listener stayed healthy.\n" +
-                    "                if (WritesDescriptor)\n" +
-                    "                    UpdateHeartBeat();\n" +
-                    "                return;\n" +
-                    "            }\n",
-                    "Pipeline descriptor heartbeat");
-            }
-
-            if (!text.Contains("Re-publish discovery metadata after repairing the listener."))
-            {
-                text = ReplaceRequired(
-                    text,
-                    "                OpenListener();\n                Debug.Log($\"Pipeline watchdog re-opened HTTP listener on port {m_Port}\");",
-                    "                OpenListener();\n" +
-                    "                // Re-publish discovery metadata after repairing the listener.\n" +
-                    "                if (WritesDescriptor)\n" +
-                    "                    UpdateHeartBeat();\n" +
-                    "                Debug.Log($\"Pipeline watchdog re-opened HTTP listener on port {m_Port}\");",
-                    "Pipeline descriptor republish after listener repair");
-            }
-
-            WriteText(path, text);
-        }
-
-        private static bool IsPipelineDescriptorSelfHealingAdapted(string text)
-        {
-            return (text ?? string.Empty).Contains("Keep discovery metadata alive even when no client is polling /api/status.") &&
-                   text.Contains("Re-publish discovery metadata after repairing the listener.");
-        }
-
-        private static void PatchAssemblyDefinitions(string packageRoot)
-        {
-            SetEditorOnly(Path.Combine(packageRoot, "CodeGen", "Unity.Pipeline.CodeGen.asmdef"));
-            SetEditorOnly(Path.Combine(packageRoot, "Runtime", "Unity.Pipeline.asmdef"));
-            SetEditorOnly(Path.Combine(packageRoot, "Runtime", "IlInterpreter", "Unity.Pipeline.IlInterpreter.asmdef"));
-
-            var editorPath = Path.Combine(packageRoot, "Editor", "Unity.Pipeline.Editor.asmdef");
-            var editor = JObject.Parse(File.ReadAllText(editorPath));
-            RemoveArrayValue(editor, "references", "Unity.Nuget.Newtonsoft-Json");
-            EnsureArrayValue(editor, "precompiledReferences", "Newtonsoft.Json.dll");
-            WriteJson(editorPath, editor);
-
-            PatchTestAssembly(Path.Combine(packageRoot, "Tests", "Editor", "Unity.Pipeline.Tests.Editor.asmdef"), false);
-            PatchTestAssembly(Path.Combine(packageRoot, "Tests", "Runtime", "Unity.Pipeline.Tests.Runtime.asmdef"), true);
-        }
-
-        private static void SetEditorOnly(string path)
-        {
-            if (!File.Exists(path))
-            {
-                return;
-            }
-
-            var assembly = JObject.Parse(File.ReadAllText(path));
-            assembly["includePlatforms"] = new JArray("Editor");
-            WriteJson(path, assembly);
-        }
-
-        private static void PatchTestAssembly(string path, bool editorOnly)
-        {
-            if (!File.Exists(path))
-            {
-                return;
-            }
-
-            var assembly = JObject.Parse(File.ReadAllText(path));
-            RemoveArrayValue(assembly, "references", "UnityEditor.TestRunner");
-            RemoveArrayValue(assembly, "references", "UnityEngine.TestRunner");
-            assembly["optionalUnityReferences"] = new JArray("TestAssemblies");
-            if (editorOnly)
-            {
-                assembly["includePlatforms"] = new JArray("Editor");
-            }
-            EnsureArrayValue(assembly, "precompiledReferences", "Newtonsoft.Json.dll");
-            EnsureArrayValue(assembly, "defineConstraints", "UNITY_INCLUDE_TESTS");
-            EnsureArrayValue(assembly, "defineConstraints", "UNITY_6000_0_OR_NEWER");
-            WriteJson(path, assembly);
-        }
-
-        private static void PatchCodeAnalysisPlugins(string packageRoot)
-        {
-            var pluginsRoot = Path.Combine(packageRoot, "Runtime", "Plugins", "CodeAnalysis");
-            foreach (var pluginName in CodeAnalysisPluginNames)
-            {
-                var path = Path.Combine(pluginsRoot, pluginName);
-                if (!File.Exists(path))
-                {
-                    throw new FileNotFoundException("Pipeline CodeAnalysis plugin metadata is missing.", path);
-                }
-
-                var guid = File.ReadLines(path)
-                    .FirstOrDefault(line => line.StartsWith("guid: ", StringComparison.Ordinal))
-                    ?.Substring("guid: ".Length).Trim();
-                if (string.IsNullOrEmpty(guid))
-                {
-                    throw new InvalidDataException("Pipeline plugin metadata has no GUID: " + path);
-                }
-
-                WriteText(path, CreateEditorOnlyPluginMeta(guid));
-            }
-        }
-
-        private static string CreateEditorOnlyPluginMeta(string guid)
-        {
-            return "fileFormatVersion: 2\n" +
-                   "guid: " + guid + "\n" +
-                   "PluginImporter:\n" +
-                   "  externalObjects: {}\n" +
-                   "  serializedVersion: 2\n" +
-                   "  iconMap: {}\n" +
-                   "  executionOrder: {}\n" +
-                   "  defineConstraints: []\n" +
-                   "  isPreloaded: 0\n" +
-                   "  isOverridable: 1\n" +
-                   "  isExplicitlyReferenced: 0\n" +
-                   "  validateReferences: 1\n" +
-                   "  platformData:\n" +
-                   "  - first:\n" +
-                   "      Any: \n" +
-                   "    second:\n" +
-                   "      enabled: 0\n" +
-                   "      settings: {}\n" +
-                   "  - first:\n" +
-                   "      Editor: Editor\n" +
-                   "    second:\n" +
-                   "      enabled: 1\n" +
-                   "      settings:\n" +
-                   "        DefaultValueInitialized: true\n" +
-                   "  - first:\n" +
-                   "      Windows Store Apps: WindowsStoreApps\n" +
-                   "    second:\n" +
-                   "      enabled: 0\n" +
-                   "      settings:\n" +
-                   "        CPU: AnyCPU\n" +
-                   "  userData: \n" +
-                   "  assetBundleName: \n" +
-                   "  assetBundleVariant: \n";
-        }
-
-        private static void ValidatePipelinePackage(string packageRoot)
-        {
-            var manifestPath = Path.Combine(packageRoot, "package.json");
-            if (!File.Exists(manifestPath))
-            {
-                throw new InvalidDataException("The extracted Pipeline package has no package.json.");
-            }
-
-            var package = JObject.Parse(File.ReadAllText(manifestPath));
-            var name = package.Value<string>("name");
-            var version = package.Value<string>("version");
-            if (!string.Equals(name, PipelinePackageName, StringComparison.Ordinal) ||
-                !string.Equals(version, Pipeline2022Version, StringComparison.Ordinal))
-            {
-                throw new InvalidDataException($"Expected {PipelinePackageName}@{Pipeline2022Version}, found {name}@{version}.");
-            }
-        }
-
-        private static string ResolveAgentForUnityPackageRoot()
-        {
-            var package = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(UnityToolingInstaller).Assembly);
-            if (package == null || string.IsNullOrEmpty(package.resolvedPath))
-            {
-                throw new InvalidOperationException("Could not resolve the Agent for Unity package path.");
-            }
-
-            return package.resolvedPath;
+            builder.Append(GuideEndMarker);
+            return builder.ToString();
         }
 
         private static void EnsureAgentsInstruction(string path)
         {
-            const string instruction = "When performing Unity development, you must read and follow UNITY-GUIDE.md.";
             var existing = File.Exists(path) ? File.ReadAllText(path) : string.Empty;
             if (AgentsInstructionExists(path))
             {
@@ -1274,18 +1800,13 @@ namespace AgentForUnity.Editor.Application
             }
 
             var prefix = string.IsNullOrWhiteSpace(existing) ? string.Empty : existing.TrimEnd() + "\n\n";
-            WriteText(path, prefix + instruction + "\n");
+            WriteTextAtomically(path, prefix + AgentsGuideInstruction + "\n");
         }
 
         private static bool AgentsInstructionExists(string path)
         {
-            if (!File.Exists(path))
-            {
-                return false;
-            }
-
-            const string instruction = "When performing Unity development, you must read and follow UNITY-GUIDE.md.";
-            return File.ReadLines(path).Any(line => string.Equals(line.Trim(), instruction, StringComparison.Ordinal));
+            return File.Exists(path) && File.ReadLines(path)
+                .Any(line => string.Equals(line.Trim(), AgentsGuideInstruction, StringComparison.Ordinal));
         }
 
         private static void EnsurePipelineLocalExecutionInstruction(string path)
@@ -1303,74 +1824,45 @@ namespace AgentForUnity.Editor.Application
             text = markerIndex >= 0
                 ? text.Insert(markerIndex, section)
                 : text.TrimEnd() + section + "\n";
-            WriteText(path, text);
+            WriteTextAtomically(path, text);
         }
 
-        private static bool PipelineLocalExecutionInstructionExists(string path)
+        private static string ResolveAgentForUnityPackageRoot()
         {
-            return File.Exists(path) && File.ReadAllText(path).Contains(PipelineLocalExecutionInstruction);
+            var package = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(UnityToolingInstaller).Assembly);
+            if (package == null || string.IsNullOrEmpty(package.resolvedPath))
+            {
+                throw new InvalidOperationException("Could not resolve the Agent for Unity package path.");
+            }
+
+            return package.resolvedPath;
         }
 
-        private static bool IsEditorOnlyAssembly(string path)
+        private static bool TryParseUnityVersion(string value, out int major, out int minor)
         {
-            if (!File.Exists(path))
+            major = 0;
+            minor = 0;
+            if (string.IsNullOrWhiteSpace(value))
             {
                 return false;
             }
 
-            var assembly = JObject.Parse(File.ReadAllText(path));
-            var platforms = assembly["includePlatforms"] as JArray;
-            return platforms != null &&
-                   platforms.Count == 1 &&
-                   string.Equals((string)platforms[0], "Editor", StringComparison.Ordinal);
+            var parts = value.Split('.');
+            return parts.Length >= 2 &&
+                   int.TryParse(parts[0], out major) &&
+                   int.TryParse(parts[1], out minor);
         }
 
-        private static bool IsUnity2022EditorAssemblyAdapted(string path)
+        private static int CountOccurrences(string value, string token)
         {
-            if (!IsEditorOnlyAssembly(path))
+            var count = 0;
+            var index = 0;
+            while ((index = value.IndexOf(token, index, StringComparison.Ordinal)) >= 0)
             {
-                return false;
+                count++;
+                index += token.Length;
             }
-
-            var assembly = JObject.Parse(File.ReadAllText(path));
-            return !ArrayContains(assembly, "references", "Unity.Nuget.Newtonsoft-Json") &&
-                   ArrayContains(assembly, "precompiledReferences", "Newtonsoft.Json.dll");
-        }
-
-        private static bool IsUnity2022TestAssemblyAdapted(string path)
-        {
-            if (!File.Exists(path))
-            {
-                return false;
-            }
-
-            var assembly = JObject.Parse(File.ReadAllText(path));
-            return !ArrayContains(assembly, "references", "UnityEditor.TestRunner") &&
-                   !ArrayContains(assembly, "references", "UnityEngine.TestRunner") &&
-                   ArrayContains(assembly, "optionalUnityReferences", "TestAssemblies") &&
-                   ArrayContains(assembly, "precompiledReferences", "Newtonsoft.Json.dll") &&
-                   ArrayContains(assembly, "defineConstraints", "UNITY_6000_0_OR_NEWER");
-        }
-
-        private static bool IsUnity2022EditorOnlyPlugin(string path)
-        {
-            if (!File.Exists(path))
-            {
-                return false;
-            }
-
-            var text = File.ReadAllText(path);
-            return text.Contains("PluginImporter:\n") &&
-                   text.Contains("  serializedVersion: 2\n") &&
-                   text.Contains("      Any: \n    second:\n      enabled: 0\n") &&
-                   text.Contains("      Editor: Editor\n    second:\n      enabled: 1\n");
-        }
-
-        private static bool ArrayContains(JObject value, string propertyName, string item)
-        {
-            var array = value[propertyName] as JArray;
-            return array != null &&
-                   array.Any(token => string.Equals((string)token, item, StringComparison.Ordinal));
+            return count;
         }
 
         private static void CopyDirectory(string source, string destination, bool preserveExisting)
@@ -1414,25 +1906,19 @@ namespace AgentForUnity.Editor.Application
                 : path + Path.DirectorySeparatorChar;
         }
 
-        private static void TryDeleteDirectory(string path)
+        private static void AddCandidate(ICollection<string> candidates, string path)
         {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return;
+            }
+
             try
             {
-                if (Directory.Exists(path))
-                {
-                    Directory.Delete(path, true);
-                }
+                candidates.Add(Path.GetFullPath(path.Trim()));
             }
             catch (Exception)
             {
-            }
-        }
-
-        private static void AddCandidate(ICollection<string> candidates, string path)
-        {
-            if (!string.IsNullOrWhiteSpace(path))
-            {
-                candidates.Add(Path.GetFullPath(path.Trim()));
             }
         }
 
@@ -1448,52 +1934,28 @@ namespace AgentForUnity.Editor.Application
             }
         }
 
-        private static void WriteJson(string path, JObject value)
+        private static void WriteTextAtomically(string path, string value)
         {
-            WriteText(path, value.ToString(Newtonsoft.Json.Formatting.Indented) + "\n");
-        }
-
-        private static void WriteText(string path, string value)
-        {
-            File.WriteAllText(path, value, new UTF8Encoding(false));
-        }
-
-        private static string ReplaceRequired(string text, string oldValue, string newValue, string description)
-        {
-            if (!text.Contains(oldValue))
+            Directory.CreateDirectory(Path.GetDirectoryName(path) ?? Environment.CurrentDirectory);
+            var temporaryPath = path + ".tmp";
+            try
             {
-                throw new InvalidDataException("Could not apply Pipeline patch: " + description + ".");
+                File.WriteAllText(temporaryPath, value, new UTF8Encoding(false));
+                if (File.Exists(path))
+                {
+                    File.Replace(temporaryPath, path, null);
+                }
+                else
+                {
+                    File.Move(temporaryPath, path);
+                }
             }
-
-            return text.Replace(oldValue, newValue);
-        }
-
-        private static void RemoveArrayValue(JObject value, string propertyName, string item)
-        {
-            var array = value[propertyName] as JArray;
-            if (array == null)
+            finally
             {
-                return;
-            }
-
-            foreach (var token in array.Where(token => string.Equals((string)token, item, StringComparison.Ordinal)).ToList())
-            {
-                token.Remove();
-            }
-        }
-
-        private static void EnsureArrayValue(JObject value, string propertyName, string item)
-        {
-            var array = value[propertyName] as JArray;
-            if (array == null)
-            {
-                array = new JArray();
-                value[propertyName] = array;
-            }
-
-            if (!array.Any(token => string.Equals((string)token, item, StringComparison.Ordinal)))
-            {
-                array.Add(item);
+                if (File.Exists(temporaryPath))
+                {
+                    File.Delete(temporaryPath);
+                }
             }
         }
 
@@ -1525,7 +1987,9 @@ namespace AgentForUnity.Editor.Application
                     {
                         FileName = fileName,
                         Arguments = arguments,
-                        WorkingDirectory = string.IsNullOrEmpty(workingDirectory) ? Environment.CurrentDirectory : workingDirectory,
+                        WorkingDirectory = string.IsNullOrEmpty(workingDirectory)
+                            ? Environment.CurrentDirectory
+                            : workingDirectory,
                         UseShellExecute = false,
                         CreateNoWindow = true,
                         RedirectStandardOutput = true,
@@ -1604,7 +2068,10 @@ namespace AgentForUnity.Editor.Application
 
             internal static ProcessResult Failed(string error)
             {
-                return new ProcessResult(false, null, string.IsNullOrWhiteSpace(error) ? "Unknown process error." : error);
+                return new ProcessResult(
+                    false,
+                    null,
+                    string.IsNullOrWhiteSpace(error) ? "Unknown process error." : error);
             }
         }
     }

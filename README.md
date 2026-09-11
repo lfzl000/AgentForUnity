@@ -7,9 +7,9 @@ Release `0.3.0` implements the M1 core workflow plus conversation and message-pr
 The core workflow provides:
 
 - locate and start the local Codex CLI app server;
-- detect and install the Unity CLI beta channel;
-- install `com.unity.pipeline` with Unity 2022.3 source adaptation when required;
-- install Pipeline skills and the project Unity guide after Pipeline setup;
+- detect the Unity version and select the supported Unity Editor tooling backend;
+- install either the official Unity CLI with `com.unity.pipeline` or Unity CLI Loop;
+- install the selected backend's skills and update the project Unity guide after setup;
 - initialize the protocol and read account state;
 - load the account's available models and reasoning efforts;
 - start or recover a project-scoped workspace-write thread;
@@ -46,7 +46,21 @@ After installation, open **Window > Agent for Unity**. The package version shoul
 
 The package depends on `com.unity.nuget.newtonsoft-json` `3.2.1`.
 
-The **Unity Tooling** panel reports Unity CLI, Pipeline package, and authenticated Pipeline Server reachability status. **Install Pipeline** is the one-click setup path on Unity 2022.3 and Unity 6 or newer: it installs Unity CLI first when missing, installs the Pipeline package, applies the source compatibility patch on Unity 2022.3, and then installs the package's `unity-pipeline` skill under `.agents/skills`. Unity 2022.3 projects also receive the `unity-pipeline-2022` compatibility skill. The setup preserves an existing `UNITY-GUIDE.md` and adds the required guide instruction to `AGENTS.md` only when it is missing.
+The **Unity Tooling** panel selects the Unity Editor tooling backend from the current Editor version:
+
+| Unity version | Default backend | Selection |
+| --- | --- | --- |
+| Earlier than 2022.3 | Unsupported | None |
+| 2022.3 or newer, earlier than Unity 6 | [Unity CLI Loop](https://github.com/hatayama/unity-cli-loop) | Required; cannot switch to the official Pipeline backend |
+| Unity 6 or newer | Official Unity CLI with `com.unity.pipeline` | May switch explicitly between the official backend and Unity CLI Loop |
+
+Agent for Unity does not automatically fail over to the other backend when a health check fails. On Unity 6, changing the selection is an explicit operation and is allowed only when no turn is active. After selecting a different backend, new turns remain disabled until setup activates it or the switch is cancelled. If setup fails, selecting the previous backend cancels the switch only when that backend's package and skills are still ready; otherwise setup must be retried.
+
+For the official backend, setup installs the Unity CLI beta channel, `com.unity.pipeline`, and the `unity-pipeline` skills. For Unity CLI Loop, setup follows the upstream `uloop package install` flow to add `io.github.hatayama.uloopmcp` through OpenUPM, installs the V3 `uloop` CLI from [hatayama/unity-cli-loop](https://github.com/hatayama/unity-cli-loop), and installs its common `.agents/skills`. A V2 CLI or package is treated as requiring the upstream V3 install flow instead of being activated. Unity 2022.3 through pre-Unity 6 projects use Unity CLI Loop directly; Agent for Unity no longer downloads or modifies official Pipeline source to make it compile there.
+
+The selected backend becomes active only after its CLI, package, skills, and managed `UNITY-GUIDE.md` section are ready. Agent for Unity then reconnects the App Server so new and resumed turns receive the active instructions. Setup preserves existing project guide content and adds the required guide instruction to `AGENTS.md` only when it is missing. Packages, CLIs, and skills from a previously used backend are not removed automatically; their presence does not make them active, and the managed guide disables every backend except the selected one.
+
+If an older Agent for Unity setup left a modified Unity 2022 copy at `Packages/com.unity.pipeline`, the official backend refuses to activate it. Back up any local changes, remove that embedded directory, and retry setup so Unity CLI can install the unmodified official package.
 
 ## Use The Window
 

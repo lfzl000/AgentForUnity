@@ -259,6 +259,7 @@ namespace AgentForUnity.Editor.Application
                 _permissionMode = AgentPermissionMode.CodexDecides;
             }
             InitializeM1State();
+            InitializeUnityToolingState();
             if (!string.IsNullOrEmpty(loadError))
             {
                 AddDiagnostic(loadError);
@@ -300,10 +301,12 @@ namespace AgentForUnity.Editor.Application
         internal bool CanSend => ConnectionState == AgentConnectionState.Ready &&
                                  !IsTurnActive &&
                                  !_operationInProgress &&
+                                 !ToolingBlocksNewTurns &&
                                  !_threadReadOnly;
         internal bool CanStartThread => ConnectionState == AgentConnectionState.Ready &&
                                         !IsTurnActive &&
-                                        !_operationInProgress;
+                                        !_operationInProgress &&
+                                        !ToolingBlocksNewTurns;
         internal bool CanInterrupt => ConnectionState == AgentConnectionState.Ready &&
                                       (TurnState == AgentTurnState.Running ||
                                        TurnState == AgentTurnState.Starting ||
@@ -319,7 +322,8 @@ namespace AgentForUnity.Editor.Application
         internal bool CanChangePermissionMode => !_disposed && !IsTurnActive && !_operationInProgress;
         internal bool CanSwitchThread => ConnectionState == AgentConnectionState.Ready &&
                                          !IsTurnActive &&
-                                         !_operationInProgress;
+                                         !_operationInProgress &&
+                                         !ToolingBlocksNewTurns;
         internal bool CanRefreshThreads => ConnectionState == AgentConnectionState.Ready && !_threadsLoading;
         internal bool ThreadsLoading => _threadsLoading;
         internal bool HasMoreThreads => !string.IsNullOrEmpty(_nextThreadsCursor);
@@ -1228,7 +1232,7 @@ namespace AgentForUnity.Editor.Application
                 ["sandbox"] = AgentPermissionPolicy.GetThreadSandboxMode(_permissionMode),
                 ["approvalPolicy"] = AgentPermissionPolicy.GetApprovalPolicy(_permissionMode),
                 ["approvalsReviewer"] = AgentPermissionPolicy.GetApprovalsReviewer(_permissionMode),
-                ["developerInstructions"] = UnityCompilationDeveloperInstructions
+                ["developerInstructions"] = BuildDeveloperInstructions()
             };
             AddOptional(parameters, "model", _selectedModelId);
 
@@ -1287,7 +1291,7 @@ namespace AgentForUnity.Editor.Application
                     ["sandbox"] = AgentPermissionPolicy.GetThreadSandboxMode(_permissionMode),
                     ["approvalPolicy"] = AgentPermissionPolicy.GetApprovalPolicy(_permissionMode),
                     ["approvalsReviewer"] = AgentPermissionPolicy.GetApprovalsReviewer(_permissionMode),
-                    ["developerInstructions"] = UnityCompilationDeveloperInstructions
+                    ["developerInstructions"] = BuildDeveloperInstructions()
                 });
             EnsureCurrentClient(client, generation);
 
@@ -2291,13 +2295,19 @@ namespace AgentForUnity.Editor.Application
                    string.Equals(turnId, _turnId, StringComparison.Ordinal);
         }
 
-        private void SaveState()
+        private string BuildDeveloperInstructions()
+        {
+            return UnityCompilationDeveloperInstructions + "\n\n" + GetUnityToolingDeveloperInstructions();
+        }
+
+        private bool SaveState()
         {
             if (_disposed && ConnectionState == AgentConnectionState.Stopped)
             {
-                return;
+                return false;
             }
 
+            SaveUnityToolingState();
             _persistedState.threadId = _threadId;
             _persistedState.turnId = _turnId;
             _persistedState.selectedModelId = _selectedModelId;
@@ -2316,10 +2326,12 @@ namespace AgentForUnity.Editor.Application
             try
             {
                 AgentForUnityStateStore.Save(_projectRoot, _persistedState);
+                return true;
             }
             catch (Exception exception)
             {
                 AddDiagnostic($"Could not persist session state: {exception.Message}");
+                return false;
             }
         }
 

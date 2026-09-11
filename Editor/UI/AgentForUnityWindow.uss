@@ -1136,6 +1136,24 @@
     opacity: 0.58;
 }
 
+.afu-tooling__backend {
+    min-height: 24px;
+    margin: 0 2px 2px 2px;
+    font-size: 10px;
+}
+
+.afu-tooling__backend > .unity-base-field__label {
+    min-width: 58px;
+    font-size: 10px;
+}
+
+.afu-tooling__backend-status {
+    margin: 0 2px 7px 62px;
+    white-space: normal;
+    font-size: 9px;
+    opacity: 0.62;
+}
+
 .afu-play-mode-settings {
     margin-bottom: 7px;
     padding: 7px;

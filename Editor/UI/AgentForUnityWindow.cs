@@ -56,13 +56,15 @@ namespace AgentForUnity.Editor.UI
         private VisualElement _diffFilesList;
         private Label _projectChangesSummary;
         private Foldout _diffFoldout;
-        private VisualElement _unityCliStatusDot;
-        private VisualElement _pipelineStatusDot;
-        private VisualElement _pipelineServerStatusDot;
+        private VisualElement _toolingCliStatusDot;
+        private VisualElement _toolingPackageStatusDot;
+        private VisualElement _toolingConnectionStatusDot;
         private Label _unityVersionValue;
-        private Label _unityCliStatus;
-        private Label _pipelineStatus;
-        private Label _pipelineServerStatus;
+        private DropdownField _toolingBackendField;
+        private Label _toolingBackendStatus;
+        private Label _toolingCliStatus;
+        private Label _toolingPackageStatus;
+        private Label _toolingConnectionStatus;
         private Label _playModeSettingsDescription;
         private Toggle _enterPlayModeOptionsToggle;
         private Toggle _reloadDomainToggle;
@@ -85,8 +87,8 @@ namespace AgentForUnity.Editor.UI
         private Button _chatAllowSessionButton;
         private Button _chatDeclineButton;
         private Button _chatCancelTurnButton;
-        private Button _installUnityCliButton;
-        private Button _installPipelineButton;
+        private Button _installToolingCliButton;
+        private Button _installToolingPackageButton;
         private Button _refreshToolingButton;
         private bool _isRefreshing;
         private int _lastMessageCount;
@@ -222,13 +224,15 @@ namespace AgentForUnity.Editor.UI
             _diffFilesList = rootVisualElement.Q<VisualElement>("diff-files-list");
             _projectChangesSummary = rootVisualElement.Q<Label>("project-changes-summary");
             _diffFoldout = rootVisualElement.Q<Foldout>("diff-foldout");
-            _unityCliStatusDot = rootVisualElement.Q<VisualElement>("unity-cli-status-dot");
-            _pipelineStatusDot = rootVisualElement.Q<VisualElement>("pipeline-status-dot");
-            _pipelineServerStatusDot = rootVisualElement.Q<VisualElement>("pipeline-server-status-dot");
+            _toolingCliStatusDot = rootVisualElement.Q<VisualElement>("tooling-cli-status-dot");
+            _toolingPackageStatusDot = rootVisualElement.Q<VisualElement>("tooling-package-status-dot");
+            _toolingConnectionStatusDot = rootVisualElement.Q<VisualElement>("tooling-connection-status-dot");
             _unityVersionValue = rootVisualElement.Q<Label>("unity-version-value");
-            _unityCliStatus = rootVisualElement.Q<Label>("unity-cli-status");
-            _pipelineStatus = rootVisualElement.Q<Label>("pipeline-status");
-            _pipelineServerStatus = rootVisualElement.Q<Label>("pipeline-server-status");
+            _toolingBackendField = rootVisualElement.Q<DropdownField>("tooling-backend-field");
+            _toolingBackendStatus = rootVisualElement.Q<Label>("tooling-backend-status");
+            _toolingCliStatus = rootVisualElement.Q<Label>("tooling-cli-status");
+            _toolingPackageStatus = rootVisualElement.Q<Label>("tooling-package-status");
+            _toolingConnectionStatus = rootVisualElement.Q<Label>("tooling-connection-status");
             _playModeSettingsDescription = rootVisualElement.Q<Label>("play-mode-settings-description");
             _enterPlayModeOptionsToggle = rootVisualElement.Q<Toggle>("enter-play-mode-options-toggle");
             _reloadDomainToggle = rootVisualElement.Q<Toggle>("reload-domain-toggle");
@@ -251,8 +255,8 @@ namespace AgentForUnity.Editor.UI
             _chatAllowSessionButton = rootVisualElement.Q<Button>("chat-allow-session-button");
             _chatDeclineButton = rootVisualElement.Q<Button>("chat-decline-button");
             _chatCancelTurnButton = rootVisualElement.Q<Button>("chat-cancel-turn-button");
-            _installUnityCliButton = rootVisualElement.Q<Button>("install-unity-cli-button");
-            _installPipelineButton = rootVisualElement.Q<Button>("install-pipeline-button");
+            _installToolingCliButton = rootVisualElement.Q<Button>("install-tooling-cli-button");
+            _installToolingPackageButton = rootVisualElement.Q<Button>("install-tooling-package-button");
             _refreshToolingButton = rootVisualElement.Q<Button>("refresh-tooling-button");
 
             return _windowRoot != null
@@ -285,13 +289,15 @@ namespace AgentForUnity.Editor.UI
                    && _diffFilesList != null
                    && _projectChangesSummary != null
                    && _diffFoldout != null
-                   && _unityCliStatusDot != null
-                   && _pipelineStatusDot != null
-                   && _pipelineServerStatusDot != null
+                   && _toolingCliStatusDot != null
+                   && _toolingPackageStatusDot != null
+                   && _toolingConnectionStatusDot != null
                    && _unityVersionValue != null
-                   && _unityCliStatus != null
-                   && _pipelineStatus != null
-                   && _pipelineServerStatus != null
+                   && _toolingBackendField != null
+                   && _toolingBackendStatus != null
+                   && _toolingCliStatus != null
+                   && _toolingPackageStatus != null
+                   && _toolingConnectionStatus != null
                    && _playModeSettingsDescription != null
                    && _enterPlayModeOptionsToggle != null
                    && _reloadDomainToggle != null
@@ -314,8 +320,8 @@ namespace AgentForUnity.Editor.UI
                    && _chatAllowSessionButton != null
                    && _chatDeclineButton != null
                    && _chatCancelTurnButton != null
-                   && _installUnityCliButton != null
-                   && _installPipelineButton != null
+                   && _installToolingCliButton != null
+                   && _installToolingPackageButton != null
                    && _refreshToolingButton != null;
         }
 
@@ -356,8 +362,8 @@ namespace AgentForUnity.Editor.UI
             _chatAllowSessionButton.clicked += () => ResolveActiveChatApproval("acceptForSession");
             _chatDeclineButton.clicked += () => ResolveActiveChatApproval("decline");
             _chatCancelTurnButton.clicked += () => ResolveActiveChatApproval("cancel");
-            _installUnityCliButton.clicked += () => _service.InstallUnityCli();
-            _installPipelineButton.clicked += () => _service.InstallPipeline();
+            _installToolingCliButton.clicked += () => _service.InstallToolingCli();
+            _installToolingPackageButton.clicked += () => _service.InstallToolingBackend();
             _refreshToolingButton.clicked += () => _service.RefreshUnityTooling();
             _enterPlayModeOptionsToggle.RegisterValueChangedCallback(OnEnterPlayModeOptionsChanged);
             _reloadDomainToggle.RegisterValueChangedCallback(OnReloadDomainChanged);
@@ -366,6 +372,7 @@ namespace AgentForUnity.Editor.UI
             _reasoningField.RegisterValueChangedCallback(OnReasoningChanged);
             _permissionField.RegisterValueChangedCallback(OnPermissionChanged);
             _languageField.RegisterValueChangedCallback(OnLanguageChanged);
+            _toolingBackendField.RegisterValueChangedCallback(OnToolingBackendChanged);
             ApplyComposerSelectWidths();
         }
 
@@ -1546,51 +1553,148 @@ namespace AgentForUnity.Editor.UI
             var hasPrompt = !string.IsNullOrWhiteSpace(_promptField.value);
             var hasScreenshot = _service.HasScreenshotAttachments;
             _sendButton.text = _service.CanSteer ? T("Steer", "引导") : T("Send", "发送");
+            _sendButton.tooltip = _service.ToolingBlocksNewTurns
+                ? T(
+                    "Wait for tooling setup, or finish or cancel the backend switch before starting a new turn.",
+                    "请等待工具配置完成，或先完成/取消能力来源切换，再开始新一轮对话。")
+                : T("Send this prompt to the current thread", "发送到当前对话");
             _sendButton.SetEnabled((_service.CanSend || _service.CanSteer) && (hasPrompt || hasScreenshot));
             _interruptButton.SetEnabled(_service.CanInterrupt);
             _disconnectButton.SetEnabled(_service.CanDisconnect);
             _newThreadButton.SetEnabled(_service.CanStartThread);
             _refreshThreadsButton.SetEnabled(_service.CanRefreshThreads);
-            _installUnityCliButton.SetEnabled(_service.CanInstallUnityCli);
-            _installPipelineButton.SetEnabled(_service.CanInstallPipeline);
-            _refreshToolingButton.SetEnabled(!_service.UnityToolingBusy);
+            _toolingBackendField.SetEnabled(_service.CanChangeToolingBackend);
+            _installToolingCliButton.SetEnabled(_service.CanInstallToolingCli);
+            _installToolingPackageButton.SetEnabled(_service.CanInstallToolingPackage);
+            _refreshToolingButton.SetEnabled(!_service.UnityToolingBusy && !_service.IsTurnStarting);
 
-            _installUnityCliButton.text = _service.UnityToolingBusy && !_service.UnityCliInstalled
+            _installToolingCliButton.text = _service.UnityToolingBusy && !_service.ToolingCliInstalled
                 ? T("Working...", "处理中…")
-                : _service.UnityCliInstalled ? T("Installed", "已安装") : T("Install", "安装");
-            _installPipelineButton.text = _service.UnityToolingBusy && !_service.PipelineProjectSetupComplete
+                : _service.ToolingCliInstalled ? T("Installed", "已安装") : T("Install", "安装");
+            _installToolingPackageButton.text = _service.UnityToolingBusy
                 ? T("Working...", "处理中…")
-                : !_service.PipelineUnityVersionSupported
+                : !_service.ToolingUnityVersionSupported
                     ? T("Unsupported", "不支持")
-                    : !_service.PipelineInstalled
-                        ? T("Install", "安装")
-                        : _service.PipelineProjectSetupComplete
-                            ? T("Installed", "已安装")
-                            : _service.PipelineRequiresUnity2022Adaptation
-                                ? T("Adapt", "适配")
-                                : T("Finish Setup", "完成配置");
+                    : _service.ToolingSetupFailed
+                        ? T("Retry", "重试")
+                        : _service.ToolingSetupPending
+                            ? T("Setting Up...", "配置中…")
+                            : _service.ToolingProjectSetupComplete
+                                ? T("Active", "已激活")
+                                : _service.ToolingPackageInstalled
+                                    ? (_service.ActiveToolingBackend.HasValue &&
+                                       _service.ActiveToolingBackend.Value != _service.RequestedToolingBackend
+                                        ? T("Switch", "切换")
+                                        : T("Finish Setup", "完成配置"))
+                                    : T("Install", "安装");
         }
 
         private void RefreshUnityToolingStatus()
         {
             _unityVersionValue.text = T("Unity ", "Unity ") + UnityEngine.Application.unityVersion;
+            RefreshToolingBackendField();
             RefreshPlayModeSettings();
-            _unityCliStatus.text = LocalizeToolingStatus(_service.UnityCliStatus);
-            _unityCliStatus.tooltip = string.IsNullOrEmpty(_service.UnityCliToolPath)
-                ? _unityCliStatus.text
-                : _service.UnityCliToolPath;
-            _pipelineStatus.text = LocalizeToolingStatus(_service.PipelineStatus);
-            _pipelineStatus.tooltip = _pipelineStatus.text;
-            _pipelineServerStatus.text = LocalizeToolingStatus(_service.PipelineServerStatus);
-            _pipelineServerStatus.tooltip = string.IsNullOrEmpty(_service.PipelineServerEndpoint)
-                ? _pipelineServerStatus.text
-                : _service.PipelineServerEndpoint;
-            RefreshToolingTone(_unityCliStatusDot, _service.UnityCliInstalled, _service.UnityToolingBusy);
-            RefreshToolingTone(_pipelineStatusDot, _service.PipelineProjectSetupComplete, _service.UnityToolingBusy);
+            ApplyToolingCaptions();
+            _installToolingCliButton.tooltip = _service.RequestedToolingBackend == UnityToolingBackend.OfficialPipeline
+                ? T("Install the official Unity CLI beta channel", "安装官方 Unity CLI beta 渠道")
+                : T("Install the uloop CLI from hatayama/unity-cli-loop", "从 hatayama/unity-cli-loop 安装 uloop CLI");
+            _installToolingPackageButton.tooltip = _service.RequestedToolingBackend == UnityToolingBackend.OfficialPipeline
+                ? T("Install Pipeline, its skill, and activate the official backend", "安装 Pipeline 及其技能并激活官方能力来源")
+                : T("Install Unity CLI Loop, its skills, and activate the backend", "安装 Unity CLI Loop 及其技能并激活能力来源");
+            _toolingCliStatus.text = LocalizeToolingStatus(_service.ToolingCliStatus);
+            _toolingCliStatus.tooltip = string.IsNullOrEmpty(_service.ToolingCliToolPath)
+                ? _toolingCliStatus.text
+                : _service.ToolingCliToolPath;
+            _toolingPackageStatus.text = LocalizeToolingStatus(_service.ToolingPackageStatus);
+            _toolingPackageStatus.tooltip = _toolingPackageStatus.text;
+            _toolingConnectionStatus.text = LocalizeToolingStatus(_service.ToolingConnectionStatus);
+            _toolingConnectionStatus.tooltip = string.IsNullOrEmpty(_service.ToolingConnectionEndpoint)
+                ? _toolingConnectionStatus.text
+                : _service.ToolingConnectionEndpoint;
+            RefreshToolingTone(_toolingCliStatusDot, _service.ToolingCliInstalled, _service.UnityToolingBusy);
             RefreshToolingTone(
-                _pipelineServerStatusDot,
-                _service.PipelineServerReachable,
-                _service.PipelineServerChecking);
+                _toolingPackageStatusDot,
+                _service.ToolingProjectSetupComplete,
+                _service.UnityToolingBusy || _service.ToolingSetupPending && !_service.ToolingSetupFailed);
+            RefreshToolingTone(
+                _toolingConnectionStatusDot,
+                _service.ToolingConnectionReachable,
+                _service.ToolingConnectionChecking);
+        }
+
+        private void RefreshToolingBackendField()
+        {
+            var choices = new List<string>();
+            if (UnityToolingInstaller.IsUnity6OrNewer(UnityEngine.Application.unityVersion))
+            {
+                choices.Add(ToolingBackendChoice(UnityToolingBackend.OfficialPipeline));
+            }
+            choices.Add(ToolingBackendChoice(UnityToolingBackend.UnityCliLoop));
+            _toolingBackendField.choices = choices;
+            _toolingBackendField.SetValueWithoutNotify(
+                _service.RequestedToolingBackend == UnityToolingBackend.OfficialPipeline
+                    ? choices[0]
+                    : choices[choices.Count - 1]);
+            var requestedName = ToolingBackendDisplayName(_service.RequestedToolingBackend);
+            var activeName = _service.ActiveToolingBackend.HasValue
+                ? ToolingBackendDisplayName(_service.ActiveToolingBackend.Value)
+                : T("None", "无");
+            if (_service.ToolingSetupPending)
+            {
+                var setupState = _service.ToolingSetupFailed
+                    ? T("setup failed", "配置失败")
+                    : T("setup in progress", "配置中");
+                var setupStateSuffix = T(" (" + setupState + ")", "（" + setupState + "）");
+                _toolingBackendStatus.text = _service.ActiveToolingBackend.HasValue
+                    ? T("Previous: ", "此前：") + activeName + T(" · Selected: ", " · 已选择：") +
+                      requestedName + setupStateSuffix
+                    : T("Active: None · Selected: ", "已激活：无 · 已选择：") +
+                      requestedName + setupStateSuffix;
+            }
+            else if (_service.ActiveToolingBackend.HasValue &&
+                     _service.ActiveToolingBackend.Value != _service.RequestedToolingBackend)
+            {
+                _toolingBackendStatus.text = T(
+                    "Active: " + activeName + " · Selected: " + requestedName + " (not applied)",
+                    "已激活：" + activeName + " · 已选择：" + requestedName + "（尚未应用）");
+            }
+            else
+            {
+                _toolingBackendStatus.text = T("Active: " + activeName, "已激活：" + activeName);
+            }
+            _toolingBackendField.label = T("Backend", "能力来源");
+            _toolingBackendField.tooltip = T(
+                "Unity 6 can switch backends; Unity 2022.3 and later versions before Unity 6 use Unity CLI Loop.",
+                "Unity 6 可切换能力来源；Unity 2022.3 至 Unity 6 以下使用 Unity CLI Loop。");
+        }
+
+        private string ToolingBackendDisplayName(UnityToolingBackend backend)
+        {
+            return backend == UnityToolingBackend.OfficialPipeline
+                ? T("Official Unity CLI + Pipeline", "官方 Unity CLI + Pipeline")
+                : "Unity CLI Loop";
+        }
+
+        private string ToolingBackendChoice(UnityToolingBackend backend)
+        {
+            return backend == UnityToolingBackend.OfficialPipeline
+                ? T("Official Unity CLI + Pipeline (Official)", "官方 Unity CLI + Pipeline（官方）")
+                : T("Unity CLI Loop (Third-party open source)", "Unity CLI Loop（第三方开源）");
+        }
+
+        private void ApplyToolingCaptions()
+        {
+            if (_service.RequestedToolingBackend == UnityToolingBackend.OfficialPipeline)
+            {
+                SetText("tooling-cli-caption", "Unity CLI", "Unity CLI");
+                SetText("tooling-package-caption", "Pipeline", "Pipeline");
+                SetText("tooling-connection-caption", "Pipeline Server", "Pipeline 服务");
+                return;
+            }
+
+            SetText("tooling-cli-caption", "uloop CLI", "uloop CLI");
+            SetText("tooling-package-caption", "Unity CLI Loop", "Unity CLI Loop");
+            SetText("tooling-connection-caption", "Unity CLI Loop Editor", "Unity CLI Loop 编辑器");
         }
 
         private void RefreshPlayModeSettings()
@@ -1672,29 +1776,40 @@ namespace AgentForUnity.Editor.UI
                 .Replace("Not checked", "未检查")
                 .Replace("Not installed", "未安装")
                 .Replace("Installed", "已安装")
-                .Replace("Installing Unity CLI", "正在安装 Unity CLI")
-                .Replace("Detecting Unity CLI", "正在检测 Unity CLI")
-                .Replace("Checking Pipeline package", "正在检查 Pipeline 包")
-                .Replace("Preparing Pipeline installation", "正在准备 Pipeline 安装")
-                .Replace("Installing Unity 2022 compatible source", "正在安装 Unity 2022 兼容源码")
-                .Replace("Installing with Unity CLI", "正在通过 Unity CLI 安装")
-                .Replace("Waiting for Unity to resolve the package", "正在等待 Unity 解析包")
-                .Replace("Finishing project setup", "正在完成工程配置")
-                .Replace("Project setup incomplete", "工程配置未完成")
-                .Replace("Unity 2022 adaptation required", "需要 Unity 2022 适配")
+                .Replace("Installing tooling CLI", "正在安装工具 CLI")
+                .Replace("Detecting tooling CLI", "正在检测工具 CLI")
+                .Replace("Checking tooling package", "正在检查工具包")
+                .Replace("Preparing tooling CLI", "正在准备工具 CLI")
+                .Replace("Preparing tooling package", "正在准备工具包")
+                .Replace("Installing tooling package", "正在安装工具包")
+                .Replace("Installing project skills", "正在安装项目技能")
+                .Replace("Resolving and compiling tooling package", "正在解析并编译工具包")
+                .Replace("Activating backend", "正在激活能力来源")
+                .Replace("Not active", "未激活")
+                .Replace("Active", "已激活")
                 .Replace("Skills ready", "技能已就绪")
                 .Replace("Installation failed", "安装失败")
                 .Replace("Detection failed", "检测失败")
                 .Replace("Project setup failed", "工程配置失败")
+                .Replace("Setup failed", "配置失败")
+                .Replace("Setup state invalid", "配置状态无效")
+                .Replace("Legacy adapted package", "旧版适配包")
+                .Replace(
+                    "Remove Packages/com.unity.pipeline before setup",
+                    "请先移除 Packages/com.unity.pipeline 再配置")
                 .Replace("Unsupported Unity version", "不支持此 Unity 版本")
                 .Replace("Checking connection", "正在检查连接")
                 .Replace("Reachable", "可连接")
                 .Replace("Unreachable", "不可连接")
+                .Replace("Backend is not active", "能力来源尚未激活")
                 .Replace("Instance descriptor missing", "缺少实例描述文件")
                 .Replace("Invalid instance descriptor", "实例描述文件无效")
                 .Replace("Authentication failed", "鉴权失败")
+                .Replace("commands", "项命令")
                 .Replace("Unavailable", "不可用")
-                .Replace("Unity CLI was not found.", "未找到 Unity CLI。");
+                .Replace("Unity CLI was not found.", "未找到 Unity CLI。")
+                .Replace("uloop CLI was not found.", "未找到 uloop CLI。")
+                .Replace("uloop CLI missing", "缺少 uloop CLI");
         }
 
         private void SendPrompt()
@@ -1822,6 +1937,22 @@ namespace AgentForUnity.Editor.UI
             }
         }
 
+        private void OnToolingBackendChanged(ChangeEvent<string> change)
+        {
+            if (_isRefreshing || !_toolingBackendField.enabledSelf)
+            {
+                return;
+            }
+
+            _service.SelectToolingBackend(
+                string.Equals(
+                    change.newValue,
+                    ToolingBackendChoice(UnityToolingBackend.UnityCliLoop),
+                    StringComparison.Ordinal)
+                    ? UnityToolingBackend.UnityCliLoop
+                    : UnityToolingBackend.OfficialPipeline);
+        }
+
         private void OnLanguageChanged(ChangeEvent<string> change)
         {
             if (_isRefreshing)
@@ -1861,9 +1992,7 @@ namespace AgentForUnity.Editor.UI
             {
                 toolingFoldout.text = T("Unity Tooling", "Unity 工具");
             }
-            SetText("unity-cli-caption", "Unity CLI", "Unity CLI");
-            SetText("pipeline-caption", "Pipeline", "Pipeline");
-            SetText("pipeline-server-caption", "Pipeline Server", "Pipeline 服务");
+            ApplyToolingCaptions();
             SetText("play-mode-settings-caption", "Enter Play Mode", "进入 Play Mode");
             SetText(
                 "play-mode-settings-scope",
@@ -1872,7 +2001,7 @@ namespace AgentForUnity.Editor.UI
             _enterPlayModeOptionsToggle.label = T("Enter Play Mode Options", "启用 Enter Play Mode Options");
             _reloadDomainToggle.label = T("Reload Domain", "重新加载 Domain");
             _reloadSceneToggle.label = T("Reload Scene", "重新加载 Scene");
-            SetText("refresh-tooling-button", "↻", "↻", "Refresh Unity CLI, Pipeline, and server status", "刷新 Unity CLI、Pipeline 与服务状态");
+            SetText("refresh-tooling-button", "↻", "↻", "Refresh the selected Unity tooling backend", "刷新所选 Unity 能力来源");
             SetText("reconnect-button", "Reconnect", "重新连接", "Restart connection detection", "重新检测连接");
             SetText("disconnect-button", "Disconnect", "断开连接", "Stop the Codex App Server connection", "停止 Codex App Server 连接");
             SetText("new-thread-button", "New Thread", "新建对话", "Start a new project-scoped thread", "开始一个项目范围的新对话");
@@ -2379,6 +2508,39 @@ namespace AgentForUnity.Editor.UI
             toolingFoldout.AddToClassList("afu-foldout");
             toolingFoldout.AddToClassList("afu-tooling");
             toolingFoldout.Add(Label("unity-version-value", string.Empty, "afu-tooling__unity-version"));
+            var toolingBackend = new DropdownField
+            {
+                name = "tooling-backend-field",
+                label = "Backend",
+                tooltip = "Choose the Unity Editor tooling backend"
+            };
+            toolingBackend.AddToClassList("afu-tooling__backend");
+            toolingFoldout.Add(toolingBackend);
+            toolingFoldout.Add(Label(
+                "tooling-backend-status",
+                "Active: None",
+                "afu-tooling__backend-status"));
+            toolingFoldout.Add(CreateFallbackToolingRow(
+                "tooling-cli-status-dot",
+                "tooling-cli-caption",
+                "Tooling CLI",
+                "tooling-cli-status",
+                "install-tooling-cli-button"));
+            toolingFoldout.Add(CreateFallbackToolingRow(
+                "tooling-package-status-dot",
+                "tooling-package-caption",
+                "Tooling Package",
+                "tooling-package-status",
+                "install-tooling-package-button"));
+            toolingFoldout.Add(CreateFallbackToolingRow(
+                "tooling-connection-status-dot",
+                "tooling-connection-caption",
+                "Editor Connection",
+                "tooling-connection-status",
+                null));
+            var refreshTooling = Button("refresh-tooling-button", "↻", "Refresh the selected Unity tooling backend");
+            refreshTooling.AddToClassList("afu-tooling__refresh");
+            toolingFoldout.Add(refreshTooling);
             var playModeSettings = Element(null, "afu-play-mode-settings");
             playModeSettings.Add(Label("play-mode-settings-caption", "Enter Play Mode", "afu-tooling__caption"));
             playModeSettings.Add(Label(
@@ -2393,27 +2555,6 @@ namespace AgentForUnity.Editor.UI
                 string.Empty,
                 "afu-play-mode-settings__description"));
             toolingFoldout.Add(playModeSettings);
-            toolingFoldout.Add(CreateFallbackToolingRow(
-                "unity-cli-status-dot",
-                "unity-cli-caption",
-                "Unity CLI",
-                "unity-cli-status",
-                "install-unity-cli-button"));
-            toolingFoldout.Add(CreateFallbackToolingRow(
-                "pipeline-status-dot",
-                "pipeline-caption",
-                "Pipeline",
-                "pipeline-status",
-                "install-pipeline-button"));
-            toolingFoldout.Add(CreateFallbackToolingRow(
-                "pipeline-server-status-dot",
-                "pipeline-server-caption",
-                "Pipeline Server",
-                "pipeline-server-status",
-                null));
-            var refreshTooling = Button("refresh-tooling-button", "↻", "Refresh Unity CLI, Pipeline, and server status");
-            refreshTooling.AddToClassList("afu-tooling__refresh");
-            toolingFoldout.Add(refreshTooling);
             detailsPane.Add(toolingFoldout);
             var diffFoldout = new Foldout { name = "diff-foldout", text = "Project Changes", value = true };
             diffFoldout.AddToClassList("afu-foldout");

@@ -8,7 +8,7 @@ namespace AgentForUnity.Editor.Application
     [Serializable]
     internal sealed class AgentForUnityPersistedState
     {
-        internal const int CurrentSchemaVersion = 4;
+        internal const int CurrentSchemaVersion = 5;
 
         public int schemaVersion = CurrentSchemaVersion;
         public string projectPath;
@@ -17,6 +17,8 @@ namespace AgentForUnity.Editor.Application
         public string selectedModelId;
         public string selectedReasoningEffort;
         public string permissionMode;
+        public string requestedToolingBackend;
+        public string activeToolingBackend;
         public bool projectContextSent;
         public List<AgentContextDraftState> contextDrafts = new List<AgentContextDraftState>();
         public string lastDiff;

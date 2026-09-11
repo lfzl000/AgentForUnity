@@ -8,16 +8,27 @@ All notable changes to Agent for Unity are documented in this file.
 
 - Prevented entering Play Mode from triggering Domain Reload while a conversation is active, avoiding termination of its App Server process and an unrecoverable in-flight turn.
 - Active turns now receive a stable-protocol Play Mode restriction when Reload Domain is enabled, so the final response explains why required runtime validation was skipped without requiring experimental App Server capabilities.
-- Fixed Unity 2022 Pipeline adaptation so its watchdog refreshes and recreates missing instance descriptors, keeping CLI discovery available while the server is healthy.
-- Installed Pipeline workflows now request approved local execution on their first localhost call instead of reporting an expected restricted-sandbox failure first.
+- Installed official Pipeline workflows now request approved local execution on their first localhost call instead of reporting an expected restricted-sandbox failure first.
+- Tooling connectivity probes are now event-driven instead of running every ten seconds, preventing Unity 2022 Mono file-descriptor exhaustion during long Editor sessions.
+- Tooling package installation now explicitly requests Unity Package Manager resolution, allowing package import and script compilation to start automatically after an external CLI updates the manifest.
 
 ### Added
 
 - Enter Play Mode settings, current reload behavior, and contextual guidance in the Unity Tooling panel.
 - Direct screenshot capture from the current Unity Game view.
 - Approval cards for App Server filesystem and network permission requests, with one-turn and session grant scopes.
-- Unity CLI detection and installation, plus one-click `com.unity.pipeline` setup with package and authenticated server reachability status.
-- Automatic Unity 2022.3 Pipeline source adaptation and project-scoped Pipeline skill/guide installation.
+- Version-aware Unity tooling setup: Unity CLI Loop for Unity 2022.3 through pre-Unity 6 projects, and the official Unity CLI with `com.unity.pipeline` by default on Unity 6 or newer.
+- An explicit Unity 6 backend selector for switching between the official Pipeline backend and Unity CLI Loop when no turn is active.
+- Unity CLI Loop CLI, package, connection, and project skill setup through `hatayama/unity-cli-loop`.
+
+### Changed
+
+- Removed the Unity 2022.3 Pipeline source adaptation and its compatibility skill; supported pre-Unity 6 Editors now use Unity CLI Loop without modifying official Pipeline source.
+- Existing Unity CLI Loop V2 installations are treated as upgrade candidates instead of valid active backends.
+- Tooling activation now completes only after the selected backend's CLI, package, skills, and managed Unity guide are ready, then reconnects the App Server with the active instructions.
+- Existing packages and skills from another backend are preserved on disk but remain disabled while that backend is inactive.
+- Backend switches now show the active and selected sources separately and block new turns until the switch is applied or cancelled.
+- Legacy Unity 2022 adapted `Packages/com.unity.pipeline` copies are rejected with a migration prompt instead of being activated as official packages.
 
 ## [0.3.0] - 2026-09-09
 

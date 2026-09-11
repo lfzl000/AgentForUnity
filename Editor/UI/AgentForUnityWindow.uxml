@@ -105,6 +105,32 @@
             <ui:ScrollView name="details-scroll" class="afu-details-pane">
                 <ui:Foldout name="tooling-foldout" text="Unity Tooling" value="true" class="afu-foldout afu-tooling">
                     <ui:Label name="unity-version-value" class="afu-tooling__unity-version" />
+                    <ui:DropdownField name="tooling-backend-field" label="Backend" tooltip="Choose the Unity Editor tooling backend" class="afu-tooling__backend" />
+                    <ui:Label name="tooling-backend-status" text="Active: None" class="afu-tooling__backend-status" />
+                    <ui:VisualElement class="afu-tooling__row">
+                        <ui:VisualElement name="tooling-cli-status-dot" class="afu-tooling__dot" />
+                        <ui:VisualElement class="afu-tooling__body">
+                            <ui:Label name="tooling-cli-caption" text="Tooling CLI" class="afu-tooling__caption" />
+                            <ui:Label name="tooling-cli-status" text="Not checked" class="afu-tooling__status" />
+                        </ui:VisualElement>
+                        <ui:Button name="install-tooling-cli-button" text="Install" tooltip="Install the selected tooling CLI" class="afu-tooling__action" />
+                    </ui:VisualElement>
+                    <ui:VisualElement class="afu-tooling__row">
+                        <ui:VisualElement name="tooling-package-status-dot" class="afu-tooling__dot" />
+                        <ui:VisualElement class="afu-tooling__body">
+                            <ui:Label name="tooling-package-caption" text="Tooling Package" class="afu-tooling__caption" />
+                            <ui:Label name="tooling-package-status" text="Not checked" class="afu-tooling__status" />
+                        </ui:VisualElement>
+                        <ui:Button name="install-tooling-package-button" text="Install" tooltip="Install and activate the selected backend" class="afu-tooling__action afu-primary-button" />
+                    </ui:VisualElement>
+                    <ui:VisualElement class="afu-tooling__row">
+                        <ui:VisualElement name="tooling-connection-status-dot" class="afu-tooling__dot" />
+                        <ui:VisualElement class="afu-tooling__body">
+                            <ui:Label name="tooling-connection-caption" text="Editor Connection" class="afu-tooling__caption" />
+                            <ui:Label name="tooling-connection-status" text="Not checked" class="afu-tooling__status" />
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                    <ui:Button name="refresh-tooling-button" text="↻" tooltip="Refresh the selected tooling backend" class="afu-tooling__refresh" />
                     <ui:VisualElement class="afu-play-mode-settings">
                         <ui:Label name="play-mode-settings-caption" text="Enter Play Mode" class="afu-tooling__caption" />
                         <ui:Label name="play-mode-settings-scope" text="Impact on Agent for Unity" class="afu-play-mode-settings__scope" />
@@ -113,30 +139,6 @@
                         <ui:Toggle name="reload-scene-toggle" label="Reload Scene" />
                         <ui:Label name="play-mode-settings-description" class="afu-play-mode-settings__description" />
                     </ui:VisualElement>
-                    <ui:VisualElement class="afu-tooling__row">
-                        <ui:VisualElement name="unity-cli-status-dot" class="afu-tooling__dot" />
-                        <ui:VisualElement class="afu-tooling__body">
-                            <ui:Label name="unity-cli-caption" text="Unity CLI" class="afu-tooling__caption" />
-                            <ui:Label name="unity-cli-status" text="Not checked" class="afu-tooling__status" />
-                        </ui:VisualElement>
-                        <ui:Button name="install-unity-cli-button" text="Install" tooltip="Install the Unity CLI beta channel" class="afu-tooling__action" />
-                    </ui:VisualElement>
-                    <ui:VisualElement class="afu-tooling__row">
-                        <ui:VisualElement name="pipeline-status-dot" class="afu-tooling__dot" />
-                        <ui:VisualElement class="afu-tooling__body">
-                            <ui:Label name="pipeline-caption" text="Pipeline" class="afu-tooling__caption" />
-                            <ui:Label name="pipeline-status" text="Not checked" class="afu-tooling__status" />
-                        </ui:VisualElement>
-                        <ui:Button name="install-pipeline-button" text="Install" tooltip="Install com.unity.pipeline and project skills" class="afu-tooling__action afu-primary-button" />
-                    </ui:VisualElement>
-                    <ui:VisualElement class="afu-tooling__row">
-                        <ui:VisualElement name="pipeline-server-status-dot" class="afu-tooling__dot" />
-                        <ui:VisualElement class="afu-tooling__body">
-                            <ui:Label name="pipeline-server-caption" text="Pipeline Server" class="afu-tooling__caption" />
-                            <ui:Label name="pipeline-server-status" text="Not checked" class="afu-tooling__status" />
-                        </ui:VisualElement>
-                    </ui:VisualElement>
-                    <ui:Button name="refresh-tooling-button" text="↻" tooltip="Refresh Unity CLI, Pipeline, and server status" class="afu-tooling__refresh" />
                 </ui:Foldout>
 
                 <ui:Foldout name="diff-foldout" text="Project Changes" value="true" class="afu-foldout">
