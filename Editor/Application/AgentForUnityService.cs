@@ -297,13 +297,17 @@ namespace AgentForUnity.Editor.Application
         internal IReadOnlyList<string> Diagnostics => _diagnostics;
         internal IReadOnlyList<AgentProjectChange> ProjectChanges => _projectChanges;
         internal string ProjectBranch => _projectBranch;
+        internal AgentGitAvailability ProjectGitAvailability { get; private set; } = AgentGitAvailability.Checking;
+        internal string ProjectGitError { get; private set; } = string.Empty;
         internal int DiagnosticsVersion => _diagnosticsVersion;
         internal bool CanSend => ConnectionState == AgentConnectionState.Ready &&
+                                 !GitBusy &&
                                  !IsTurnActive &&
                                  !_operationInProgress &&
                                  !ToolingBlocksNewTurns &&
                                  !_threadReadOnly;
         internal bool CanStartThread => ConnectionState == AgentConnectionState.Ready &&
+                                        !GitBusy &&
                                         !IsTurnActive &&
                                         !_operationInProgress &&
                                         !ToolingBlocksNewTurns;
@@ -321,6 +325,7 @@ namespace AgentForUnity.Editor.Application
                                       TurnState == AgentTurnState.Interrupting;
         internal bool CanChangePermissionMode => !_disposed && !IsTurnActive && !_operationInProgress;
         internal bool CanSwitchThread => ConnectionState == AgentConnectionState.Ready &&
+                                         !GitBusy &&
                                          !IsTurnActive &&
                                          !_operationInProgress &&
                                          !ToolingBlocksNewTurns;
@@ -397,11 +402,16 @@ namespace AgentForUnity.Editor.Application
 
         internal void HandlePlayModeEntryBlocked()
         {
-            if (_disposed || !IsTurnStarting)
+            if (_disposed || (!IsTurnStarting && !GitBusy))
             {
                 return;
             }
 
+            if (GitBusy)
+            {
+                SetGitStatus("Wait for the Git action before entering Play Mode", "请等待 Git 操作完成后再进入 Play Mode", GitDetails);
+                return;
+            }
             StatusText = "Play Mode blocked - Domain Reload would interrupt the conversation";
             AddDiagnostic(
                 "Cancelled Play Mode entry because Domain Reload would interrupt the active conversation. " +
@@ -779,6 +789,7 @@ namespace AgentForUnity.Editor.Application
 
             UpdateUnityToolingSetup();
             _client?.Pump(128);
+            _gitMessageClient?.Pump(128);
             if (!string.IsNullOrEmpty(_pendingDisconnect))
             {
                 var disconnectedClient = _pendingDisconnectedClient;
@@ -814,6 +825,7 @@ namespace AgentForUnity.Editor.Application
 
         private void RefreshProjectChanges()
         {
+            if (GitBusy) return;
             if (EditorApplication.timeSinceStartup < _nextProjectChangesRefreshTime)
             {
                 return;
@@ -821,16 +833,21 @@ namespace AgentForUnity.Editor.Application
 
             _nextProjectChangesRefreshTime = EditorApplication.timeSinceStartup + ProjectChangesRefreshSeconds;
             AgentProjectChangesSnapshot snapshot;
+            var error = string.Empty;
             try
             {
                 snapshot = AgentForUnityContextCollector.GetProjectChanges(_projectRoot);
             }
-            catch (Exception)
+            catch (Exception exception)
             {
-                return;
+                var missing = exception is System.ComponentModel.Win32Exception nativeError && nativeError.NativeErrorCode == 2;
+                snapshot = new AgentProjectChangesSnapshot(string.Empty, Array.Empty<AgentProjectChange>(),
+                    missing ? AgentGitAvailability.GitMissing : AgentGitAvailability.Error);
+                error = AgentForUnityContextCollector.Redact(exception.Message);
             }
 
-            if (_projectBranch == snapshot.Branch &&
+            if (ProjectGitAvailability == snapshot.Availability && ProjectGitError == error &&
+                _projectBranch == snapshot.Branch &&
                 _projectChanges.Count == snapshot.Changes.Count &&
                 _projectChanges.Zip(snapshot.Changes, (current, next) =>
                     current.Path == next.Path && current.ChangeType == next.ChangeType).All(matches => matches))
@@ -839,6 +856,8 @@ namespace AgentForUnity.Editor.Application
             }
 
             _projectBranch = snapshot.Branch;
+            ProjectGitAvailability = snapshot.Availability;
+            ProjectGitError = error;
             _projectChanges.Clear();
             _projectChanges.AddRange(snapshot.Changes);
             MarkChanged();
@@ -852,6 +871,7 @@ namespace AgentForUnity.Editor.Application
             }
 
             _disposed = true;
+            DisposeGit();
             CancelUserOperation();
             _connectionGeneration++;
             ReleaseDomainReloadLock();

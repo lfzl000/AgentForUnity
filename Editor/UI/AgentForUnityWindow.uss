@@ -1062,9 +1062,48 @@
     margin-bottom: 2px;
 }
 
+.afu-diff-files-scroll {
+    max-height: 250px;
+    min-height: 0;
+    flex-grow: 0;
+    flex-shrink: 0;
+}
+
+.afu-diff-files-scroll .unity-scroll-view__content-container {
+    min-width: 0;
+}
+
 .afu-diff-files {
     flex-direction: column;
     margin-bottom: 4px;
+}
+
+.afu-git-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-bottom: 5px;
+}
+
+.afu-git-actions > Button {
+    flex-grow: 1;
+    min-width: 48px;
+    height: 25px;
+}
+
+.afu-git-status {
+    white-space: normal;
+    margin-bottom: 4px;
+    -unity-font-style: bold;
+}
+
+.afu-git-status--error {
+    color: rgb(235, 125, 115);
+}
+
+.afu-git-details {
+    white-space: normal;
+    font-size: 11px;
+    margin-bottom: 6px;
 }
 
 .afu-project-changes-summary {
@@ -1079,19 +1118,41 @@
     align-items: center;
     justify-content: flex-start;
     width: 100%;
-    min-height: 21px;
-    margin-bottom: 1px;
-    padding: 1px 4px;
+    min-height: 22px;
+    margin: 0;
+    padding: 1px 3px;
+    background-color: rgba(0, 0, 0, 0);
+    border-width: 0;
+    border-radius: 0;
+}
+
+.afu-project-change:hover {
+    background-color: rgba(128, 128, 128, 0.12);
 }
 
 .afu-project-change__name {
-    flex-grow: 1;
+    flex-grow: 0;
+    flex-shrink: 1;
     min-width: 0;
+    max-width: 55%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     -unity-text-align: middle-left;
     font-size: 10px;
+}
+
+.afu-project-change__directory {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+    margin-left: 5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    -unity-text-align: middle-left;
+    font-size: 9px;
+    color: rgba(180, 180, 180, 0.72);
 }
 
 .afu-project-change__status {

@@ -141,9 +141,19 @@
                     </ui:VisualElement>
                 </ui:Foldout>
 
+                <ui:Label name="git-unavailable-notice" text="Checking Git…" class="afu-git-details" />
                 <ui:Foldout name="diff-foldout" text="Project Changes" value="true" class="afu-foldout">
                     <ui:Label name="project-changes-summary" class="afu-project-changes-summary" />
-                    <ui:VisualElement name="diff-files-list" class="afu-diff-files" />
+                    <ui:VisualElement name="git-actions" class="afu-git-actions">
+                        <ui:Button name="git-pull-button" text="Pull" />
+                        <ui:Button name="git-push-button" text="Push" />
+                        <ui:Button name="git-commit-all-button" text="Commit All" />
+                    </ui:VisualElement>
+                    <ui:Label name="git-status" class="afu-git-status" />
+                    <ui:Label name="git-details" class="afu-git-details" />
+                    <ui:ScrollView name="diff-files-scroll" mode="Vertical" horizontal-scroller-visibility="Hidden" class="afu-diff-files-scroll">
+                        <ui:VisualElement name="diff-files-list" class="afu-diff-files" />
+                    </ui:ScrollView>
                 </ui:Foldout>
 
             </ui:ScrollView>

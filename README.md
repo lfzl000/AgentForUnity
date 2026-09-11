@@ -86,6 +86,20 @@ An active conversation keeps Unity's assembly reload locked so its App Server pr
 
 Codex owns authentication and conversation history. Agent for Unity does not write API keys, OAuth tokens, or message history to `Assets`. Reload state, redacted context drafts, turn Diff, and compilation state are stored under `Library/AgentForUnity/`.
 
+### Git actions
+
+The **Project Changes** panel includes **Pull**, **Push**, and **Commit All**. Actions operate on the entire Git repository containing the Unity project, including files outside the project directory when it lives in a larger repository. They pause new chat turns and tooling installation until finished.
+
+If the project is not in a Git repository, the window displays a “Git is not set up” notice and hides Project Changes, Git actions, and the Git Diff attachment button. Missing Git and detection errors have separate notices. Detection retries automatically, so Git features return after a repository becomes available. A local repository without a remote still supports Commit All.
+
+- **Pull** requires a clean repository and a configured upstream, and only accepts a fast-forward. It does not automatically stash, rebase, or resolve conflicts. Unity assets refresh when the operation finishes.
+- **Push** sends only the current branch to its configured upstream. Without an upstream, it creates/tracks the same branch on `origin`. It does not force-push or push tags. Git uses existing local credentials; authentication failures must be resolved in your Git client or terminal.
+- **Commit All** includes tracked modifications/deletions and new files not ignored by Git. It requires a ready Codex connection. An ephemeral background App Server request generates a subject/body using applicable `AGENTS.md` / `AGENTS.override.md`, contribution guidelines, commit templates, commitlint configuration and recent commit subjects. It does not create a visible conversation or add messages to the current chat. Standard Git hooks and signing remain enabled.
+
+Commit message generation uses a temporary index and does not stage changes. The snapshot is checked again before the real index is updated and committed. If generation fails or the snapshot changes, retry after reviewing the files; failures after staging preserve the staged changes. Changes inside submodules must be committed separately. For large commits, it uses bounded file status, directory distribution, and change statistics instead of the full patch; smaller commits retain full-diff message generation. Detached HEAD, unresolved merges/rebases/conflicts, and combined project rules over 96 KiB produce an error instead of a partial commit. The panel shows progress, the commit/message, or Git error details; hover over details for the full text. Committing does not push automatically.
+
+Commit messages use `gpt-5.6-luna` with `low` reasoning effort. The request does not use the chat model or its reasoning setting. If that model or effort is unavailable for the authenticated Codex account, Commit All reports the missing availability instead of silently substituting another model or effort.
+
 ## Package Layout
 
 ```text

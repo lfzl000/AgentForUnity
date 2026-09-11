@@ -55,6 +55,12 @@ namespace AgentForUnity.Editor.UI
         private Label _chatApprovalMessage;
         private VisualElement _diffFilesList;
         private Label _projectChangesSummary;
+        private Label _gitUnavailableNotice;
+        private Button _gitPullButton;
+        private Button _gitPushButton;
+        private Button _gitCommitAllButton;
+        private Label _gitStatus;
+        private Label _gitDetails;
         private Foldout _diffFoldout;
         private VisualElement _toolingCliStatusDot;
         private VisualElement _toolingPackageStatusDot;
@@ -223,6 +229,12 @@ namespace AgentForUnity.Editor.UI
             _chatApprovalMessage = rootVisualElement.Q<Label>("chat-approval-message");
             _diffFilesList = rootVisualElement.Q<VisualElement>("diff-files-list");
             _projectChangesSummary = rootVisualElement.Q<Label>("project-changes-summary");
+            _gitUnavailableNotice = rootVisualElement.Q<Label>("git-unavailable-notice");
+            _gitPullButton = rootVisualElement.Q<Button>("git-pull-button");
+            _gitPushButton = rootVisualElement.Q<Button>("git-push-button");
+            _gitCommitAllButton = rootVisualElement.Q<Button>("git-commit-all-button");
+            _gitStatus = rootVisualElement.Q<Label>("git-status");
+            _gitDetails = rootVisualElement.Q<Label>("git-details");
             _diffFoldout = rootVisualElement.Q<Foldout>("diff-foldout");
             _toolingCliStatusDot = rootVisualElement.Q<VisualElement>("tooling-cli-status-dot");
             _toolingPackageStatusDot = rootVisualElement.Q<VisualElement>("tooling-package-status-dot");
@@ -288,6 +300,12 @@ namespace AgentForUnity.Editor.UI
                    && _chatApprovalMessage != null
                    && _diffFilesList != null
                    && _projectChangesSummary != null
+                   && _gitUnavailableNotice != null
+                   && _gitPullButton != null
+                   && _gitPushButton != null
+                   && _gitCommitAllButton != null
+                   && _gitStatus != null
+                   && _gitDetails != null
                    && _diffFoldout != null
                    && _toolingCliStatusDot != null
                    && _toolingPackageStatusDot != null
@@ -357,6 +375,9 @@ namespace AgentForUnity.Editor.UI
             _addFileButton.clicked += AddFileContext;
             _addSceneButton.clicked += () => AddContext(AgentContextKind.Scene);
             _addGitDiffButton.clicked += () => AddContext(AgentContextKind.GitDiff);
+            _gitPullButton.clicked += () => _service.RunGit(AgentGitAction.Pull);
+            _gitPushButton.clicked += () => _service.RunGit(AgentGitAction.Push);
+            _gitCommitAllButton.clicked += () => _service.RunGit(AgentGitAction.CommitAll);
             _addScreenshotButton.clicked += ShowScreenshotMenu;
             _chatAllowOnceButton.clicked += () => ResolveActiveChatApproval("accept");
             _chatAllowSessionButton.clicked += () => ResolveActiveChatApproval("acceptForSession");
@@ -1260,6 +1281,26 @@ namespace AgentForUnity.Editor.UI
 
         private void RefreshProjectChanges(IReadOnlyList<AgentProjectChange> changes, string branch)
         {
+            var available = _service.ProjectGitAvailability == AgentGitAvailability.Available;
+            _diffFoldout.style.display = available ? DisplayStyle.Flex : DisplayStyle.None;
+            _addGitDiffButton.style.display = available ? DisplayStyle.Flex : DisplayStyle.None;
+            _gitUnavailableNotice.style.display = available ? DisplayStyle.None : DisplayStyle.Flex;
+            _gitUnavailableNotice.tooltip = _service.ProjectGitError;
+            switch (_service.ProjectGitAvailability)
+            {
+                case AgentGitAvailability.Checking:
+                    _gitUnavailableNotice.text = T("Checking Git…", "正在检测 Git…");
+                    break;
+                case AgentGitAvailability.NotRepository:
+                    _gitUnavailableNotice.text = T("Git is not set up: this project is not in a Git repository.", "未接入 Git：当前项目不在 Git 仓库中。");
+                    break;
+                case AgentGitAvailability.GitMissing:
+                    _gitUnavailableNotice.text = T("Git was not found. Install Git and restart Unity to enable Git features.", "未检测到 Git，请安装 Git 并重启 Unity 后使用相关功能。");
+                    break;
+                case AgentGitAvailability.Error:
+                    _gitUnavailableNotice.text = T("Git is unavailable. Hover for details; detection will retry automatically.", "Git 暂不可用，悬停可查看原因，将自动重新检测。");
+                    break;
+            }
             var signature = (branch ?? string.Empty) + "\n" + (changes == null
                 ? string.Empty
                 : string.Join("|", changes.Select(change => change.Path + ":" + change.ChangeType)));
@@ -1291,6 +1332,10 @@ namespace AgentForUnity.Editor.UI
                 var name = new Label(ProjectChangeFileName(capturedPath));
                 name.AddToClassList("afu-project-change__name");
                 item.Add(name);
+
+                var directory = new Label(ProjectChangeDirectory(capturedPath));
+                directory.AddToClassList("afu-project-change__directory");
+                item.Add(directory);
 
                 var status = new Label(ProjectChangeStatusLetter(file.ChangeType));
                 status.AddToClassList("afu-project-change__status");
@@ -1483,6 +1528,13 @@ namespace AgentForUnity.Editor.UI
             return separatorIndex < 0 ? normalizedPath : normalizedPath.Substring(separatorIndex + 1);
         }
 
+        private static string ProjectChangeDirectory(string path)
+        {
+            var normalizedPath = (path ?? string.Empty).Replace('\\', '/');
+            var separatorIndex = normalizedPath.LastIndexOf('/');
+            return separatorIndex <= 0 ? string.Empty : normalizedPath.Substring(0, separatorIndex);
+        }
+
         private static string ProjectChangeStatusLetter(AgentProjectChangeType changeType)
         {
             switch (changeType)
@@ -1543,6 +1595,11 @@ namespace AgentForUnity.Editor.UI
             host.Add(empty);
         }
 
+        private static string TruncateGitDetails(string value)
+        {
+            return string.IsNullOrEmpty(value) || value.Length <= 1200 ? value : value.Substring(0, 1200) + "…";
+        }
+
         private void UpdateActionAvailability()
         {
             if (_service == null || _promptField == null)
@@ -1551,6 +1608,21 @@ namespace AgentForUnity.Editor.UI
             }
 
             var hasPrompt = !string.IsNullOrWhiteSpace(_promptField.value);
+            _gitPullButton.text = T("Pull", "拉取");
+            _gitPushButton.text = T("Push", "推送");
+            _gitCommitAllButton.text = T("Commit All", "提交全部");
+            _gitPullButton.tooltip = T("Fast-forward the current branch from its upstream. Requires a clean repository.", "从上游快进更新当前分支，需要仓库没有未提交变更。");
+            _gitPushButton.tooltip = T("Push only the current branch to its upstream, or create it on origin. Never force-push.", "推送当前分支到上游；没有上游时推送到 origin 并建立跟踪。不强制推送。");
+            _gitCommitAllButton.tooltip = T("Commit all changes in the Git repository, including new files not ignored by Git. Generate the message in the background using project rules. Requires a Codex connection.", "提交 Git 仓库全部变更，包括未被忽略的新增文件。后台根据项目规则生成说明，需要连接 Codex。");
+            _gitPullButton.SetEnabled(_service.CanRunGit);
+            _gitPushButton.SetEnabled(_service.CanRunGit);
+            _gitCommitAllButton.SetEnabled(_service.CanCommitAll);
+            _gitStatus.text = IsChinese ? _service.GitStatusChinese : _service.GitStatus;
+            _gitStatus.EnableInClassList("afu-git-status--error", _service.GitFailed);
+            _gitDetails.text = TruncateGitDetails(_service.GitDetails);
+            _gitDetails.tooltip = _service.GitDetails;
+            _gitStatus.style.display = string.IsNullOrEmpty(_service.GitStatus) ? DisplayStyle.None : DisplayStyle.Flex;
+            _gitDetails.style.display = string.IsNullOrEmpty(_service.GitDetails) ? DisplayStyle.None : DisplayStyle.Flex;
             var hasScreenshot = _service.HasScreenshotAttachments;
             _sendButton.text = _service.CanSteer ? T("Steer", "引导") : T("Send", "发送");
             _sendButton.tooltip = _service.ToolingBlocksNewTurns
@@ -1560,13 +1632,14 @@ namespace AgentForUnity.Editor.UI
                 : T("Send this prompt to the current thread", "发送到当前对话");
             _sendButton.SetEnabled((_service.CanSend || _service.CanSteer) && (hasPrompt || hasScreenshot));
             _interruptButton.SetEnabled(_service.CanInterrupt);
-            _disconnectButton.SetEnabled(_service.CanDisconnect);
+            _disconnectButton.SetEnabled(_service.CanDisconnect && !_service.GitBusy);
+            _reconnectButton.SetEnabled(!_service.GitBusy);
             _newThreadButton.SetEnabled(_service.CanStartThread);
             _refreshThreadsButton.SetEnabled(_service.CanRefreshThreads);
             _toolingBackendField.SetEnabled(_service.CanChangeToolingBackend);
             _installToolingCliButton.SetEnabled(_service.CanInstallToolingCli);
             _installToolingPackageButton.SetEnabled(_service.CanInstallToolingPackage);
-            _refreshToolingButton.SetEnabled(!_service.UnityToolingBusy && !_service.IsTurnStarting);
+            _refreshToolingButton.SetEnabled(!_service.UnityToolingBusy && !_service.IsTurnStarting && !_service.GitBusy);
 
             _installToolingCliButton.text = _service.UnityToolingBusy && !_service.ToolingCliInstalled
                 ? T("Working...", "处理中…")
@@ -2556,10 +2629,25 @@ namespace AgentForUnity.Editor.UI
                 "afu-play-mode-settings__description"));
             toolingFoldout.Add(playModeSettings);
             detailsPane.Add(toolingFoldout);
+            detailsPane.Add(Label("git-unavailable-notice", "Checking Git…", "afu-git-details"));
             var diffFoldout = new Foldout { name = "diff-foldout", text = "Project Changes", value = true };
             diffFoldout.AddToClassList("afu-foldout");
             diffFoldout.Add(Label("project-changes-summary", string.Empty, "afu-project-changes-summary"));
-            diffFoldout.Add(Element("diff-files-list", "afu-diff-files"));
+            var gitActions = Element("git-actions", "afu-git-actions");
+            gitActions.Add(Button("git-pull-button", "Pull", "Pull current branch"));
+            gitActions.Add(Button("git-push-button", "Push", "Push current branch"));
+            gitActions.Add(Button("git-commit-all-button", "Commit All", "Commit all repository changes"));
+            diffFoldout.Add(gitActions);
+            diffFoldout.Add(Label("git-status", string.Empty, "afu-git-status"));
+            diffFoldout.Add(Label("git-details", string.Empty, "afu-git-details"));
+            var diffFilesScroll = new ScrollView(ScrollViewMode.Vertical)
+            {
+                name = "diff-files-scroll",
+                horizontalScrollerVisibility = ScrollerVisibility.Hidden
+            };
+            diffFilesScroll.AddToClassList("afu-diff-files-scroll");
+            diffFilesScroll.Add(Element("diff-files-list", "afu-diff-files"));
+            diffFoldout.Add(diffFilesScroll);
             detailsPane.Add(diffFoldout);
 
             workspace.Add(detailsPane);
@@ -2618,6 +2706,11 @@ namespace AgentForUnity.Editor.UI
             detailsPane.style.width = 280f;
             detailsPane.style.paddingLeft = 8f;
             detailsPane.style.paddingRight = 8f;
+            var diffFilesScroll = rootVisualElement.Q<ScrollView>("diff-files-scroll");
+            diffFilesScroll.style.maxHeight = 250f;
+            diffFilesScroll.style.minHeight = 0f;
+            diffFilesScroll.style.flexGrow = 0f;
+            diffFilesScroll.style.flexShrink = 0f;
         }
 
         private static VisualElement Element(string name, string className)

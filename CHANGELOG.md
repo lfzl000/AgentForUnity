@@ -14,6 +14,10 @@ All notable changes to Agent for Unity are documented in this file.
 
 ### Added
 
+- Git availability notices that hide Git controls when the project has no repository or Git cannot be used, and restore them after detection succeeds.
+- Large Commit All changes now generate messages from bounded change statistics and file metadata instead of timing out while reading a multi-megabyte patch.
+- Background commit-message generation now uses `gpt-5.6-luna` with low reasoning effort, independently of chat settings.
+- Git Pull, Push, and Commit All actions in Project Changes, with ephemeral background commit-message generation from project rules and a checked repository snapshot.
 - Enter Play Mode settings, current reload behavior, and contextual guidance in the Unity Tooling panel.
 - Direct screenshot capture from the current Unity Game view.
 - Approval cards for App Server filesystem and network permission requests, with one-turn and session grant scopes.

@@ -258,6 +258,11 @@ namespace AgentForUnity.Editor.Application
                 RedirectStandardError = true
             };
 
+            // Keep the non-repository diagnostic stable across the Editor's locale.
+            startInfo.EnvironmentVariables["LC_ALL"] = "C";
+            foreach (var name in new[] { "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE" })
+                startInfo.EnvironmentVariables.Remove(name);
+
             using (var process = Process.Start(startInfo))
             {
                 if (process == null)
@@ -285,6 +290,8 @@ namespace AgentForUnity.Editor.Application
                 var error = errorTask.GetAwaiter().GetResult();
                 if (process.ExitCode != 0)
                 {
+                    if (error.IndexOf("not a git repository", StringComparison.OrdinalIgnoreCase) >= 0)
+                        return new AgentProjectChangesSnapshot(string.Empty, Array.Empty<AgentProjectChange>(), AgentGitAvailability.NotRepository);
                     throw new InvalidOperationException(string.IsNullOrWhiteSpace(error) ? "Git status failed." : error.Trim());
                 }
 

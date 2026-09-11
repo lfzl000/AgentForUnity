@@ -59,6 +59,7 @@ namespace AgentForUnity.Editor.Application
                                   !string.IsNullOrEmpty(_threadId) &&
                                   !string.IsNullOrEmpty(_turnId);
         internal bool CanRequestUnityCompilation => !_disposed &&
+                                                    !GitBusy &&
                                                     TurnState == AgentTurnState.Completed &&
                                                     !EditorApplication.isCompiling;
 
@@ -85,6 +86,8 @@ namespace AgentForUnity.Editor.Application
                         item = AgentForUnityContextCollector.CaptureScene(_projectRoot);
                         break;
                     case AgentContextKind.GitDiff:
+                        if (ProjectGitAvailability != AgentGitAvailability.Available)
+                            throw new InvalidOperationException("Git is unavailable for this project. Check the Git status in Project Changes.");
                         item = AgentForUnityContextCollector.CaptureGitDiff(_projectRoot);
                         break;
                     case AgentContextKind.Screenshot:
@@ -388,6 +391,7 @@ namespace AgentForUnity.Editor.Application
 
         private void UpdateCompilationVerificationRequest()
         {
+            if (GitBusy) return;
             var turnId = _compilationVerificationTurnId;
             if (string.IsNullOrEmpty(turnId))
             {

@@ -132,6 +132,7 @@ namespace AgentForUnity.Editor.Application
         internal string ToolingConnectionEndpoint => _toolingConnectionEndpoint;
         internal string ToolingCliToolPath => _toolingCliPath;
         internal bool CanChangeToolingBackend => !_disposed &&
+                                                 !GitBusy &&
                                                  !_unityToolingBusy &&
                                                  !IsTurnStarting &&
                                                  !_operationInProgress &&
@@ -139,6 +140,7 @@ namespace AgentForUnity.Editor.Application
                                                  UnityToolingInstaller.IsUnity6OrNewer(UnityEngine.Application.unityVersion) &&
                                                  (_toolingSetupState == null || ToolingSetupFailed);
         internal bool CanInstallToolingCli => !_disposed &&
+                                              !GitBusy &&
                                               !_unityToolingBusy &&
                                               !IsTurnStarting &&
                                               !_operationInProgress &&
@@ -147,6 +149,7 @@ namespace AgentForUnity.Editor.Application
                                               !_toolingCliInstalled &&
                                               (_toolingSetupState == null || ToolingSetupFailed);
         internal bool CanInstallToolingPackage => !_disposed &&
+                                                  !GitBusy &&
                                                   !_unityToolingBusy &&
                                                   !IsTurnStarting &&
                                                   !_operationInProgress &&
@@ -267,7 +270,7 @@ namespace AgentForUnity.Editor.Application
                 return;
             }
 
-            if (_unityToolingBusy ||
+            if (_unityToolingBusy || GitBusy ||
                 IsTurnStarting ||
                 _operationInProgress ||
                 UnityEditorBusyForTooling)
@@ -714,7 +717,7 @@ namespace AgentForUnity.Editor.Application
 
         private void UpdateUnityToolingSetup()
         {
-            if (_disposed)
+            if (_disposed || GitBusy)
             {
                 return;
             }

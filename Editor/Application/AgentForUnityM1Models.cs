@@ -65,15 +65,27 @@ namespace AgentForUnity.Editor.Application
         internal AgentProjectChangeType ChangeType { get; }
     }
 
+    internal enum AgentGitAvailability
+    {
+        Checking,
+        Available,
+        NotRepository,
+        GitMissing,
+        Error
+    }
+
     internal sealed class AgentProjectChangesSnapshot
     {
-        internal AgentProjectChangesSnapshot(string branch, IReadOnlyList<AgentProjectChange> changes)
+        internal AgentProjectChangesSnapshot(string branch, IReadOnlyList<AgentProjectChange> changes,
+            AgentGitAvailability availability = AgentGitAvailability.Available)
         {
             Branch = branch ?? string.Empty;
+            Availability = availability;
             Changes = changes ?? Array.Empty<AgentProjectChange>();
         }
 
         internal string Branch { get; }
+        internal AgentGitAvailability Availability { get; }
         internal IReadOnlyList<AgentProjectChange> Changes { get; }
     }
 
