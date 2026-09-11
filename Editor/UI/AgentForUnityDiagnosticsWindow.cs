@@ -14,7 +14,6 @@ namespace AgentForUnity.Editor.UI
         private Label _summary;
         private int _lastDiagnosticsVersion = -1;
 
-        [MenuItem("Window/Agent for Unity/Diagnostics")]
         internal static void Open()
         {
             var window = GetWindow<AgentForUnityDiagnosticsWindow>();
