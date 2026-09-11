@@ -6,6 +6,7 @@ All notable changes to Agent for Unity are documented in this file.
 
 ### Fixed
 
+- Object and Console context menus now follow Agent for Unity's interface language, showing **Add to AgentForUnity** in English and **添加到 AgentForUnity** in Chinese.
 - Console context menus now receive mouse events from the actual IMGUI host in Unity 2022.3 and Unity 6, instead of attaching to the separate UI Toolkit content root.
 - Prevented entering Play Mode from triggering Domain Reload while a conversation is active, avoiding termination of its App Server process and an unrecoverable in-flight turn.
 - Active turns now receive a stable-protocol Play Mode restriction when Reload Domain is enabled, so the final response explains why required runtime validation was skipped without requiring experimental App Server capabilities.

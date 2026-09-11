@@ -33,7 +33,7 @@ The window streams the agent response and associated activity. Use **New Thread*
 
 ## Context And Media
 
-Attach Project, Selection, Console entries, files, scenes, or Git Diff as context before sending. Right-click selected objects, components, or Console entries and choose **添加到 AgentForUnity** to add them to the composer.
+Attach Project, Selection, Console entries, files, scenes, or Git Diff as context before sending. Right-click selected objects, components, or Console entries and choose **Add to AgentForUnity** to add them to the composer.
 
 Use **+ Media** to attach an image from the clipboard or capture the Game view. With the prompt focused, press **Cmd+V** on macOS or **Ctrl+V** on Windows to attach a clipboard image. Media attachments stay outside `Assets` and can be removed before sending.
 
@@ -45,11 +45,11 @@ While a turn is running, **Send** becomes **Steer** so you can add direction. Us
 
 ## Permissions
 
-| Mode | Behavior |
-| --- | --- |
-| **Ask for Approval** | You approve requested access. |
-| **Approve for me** | Requests are automatically reviewed within the project sandbox; network access is disabled by default. |
-| **Full Access** | Unrestricted Codex access. |
+| Mode                 | Behavior                                                                                               |
+| -------------------- | ------------------------------------------------------------------------------------------------------ |
+| **Ask for Approval** | You approve requested access.                                                                          |
+| **Approve for me**   | Requests are automatically reviewed within the project sandbox; network access is disabled by default. |
+| **Full Access**      | Unrestricted Codex access.                                                                             |
 
 When more file-system or network access is required, the window presents an approval card. You can allow it once, allow it for the App Server session, or decline it.
 

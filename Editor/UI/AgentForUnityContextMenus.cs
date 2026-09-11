@@ -13,7 +13,9 @@ namespace AgentForUnity.Editor.UI
     [InitializeOnLoad]
     internal static class AgentForUnityContextMenus
     {
-        private const string AddLabel = "添加到 AgentForUnity";
+        private const string EnglishAddLabel = "Add to AgentForUnity";
+        private const string ChineseAddLabel = "添加到 AgentForUnity";
+        private static string AddLabel => AgentForUnityWindow.T(EnglishAddLabel, ChineseAddLabel);
         private const BindingFlags StaticFlags = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
         private const BindingFlags InstanceFlags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
         private static readonly Type ConsoleType = typeof(EditorWindow).Assembly.GetType("UnityEditor.ConsoleWindow");
@@ -21,42 +23,100 @@ namespace AgentForUnity.Editor.UI
         private static Action _originalConsoleGui;
         private static Action _consoleGuiHandler;
         private static EditorWindow _consoleWindow;
+        private static readonly MethodInfo RebuildMenus = typeof(Menu).GetMethod("RebuildAllMenus", StaticFlags);
+        private static readonly MethodInfo RemoveMenu = typeof(Menu).GetMethod("RemoveMenuItem", StaticFlags);
+        private static readonly MethodInfo MenuExists = typeof(Menu).GetMethod("MenuItemExists", StaticFlags);
+        private static readonly EventInfo MenusChanged = typeof(Menu).GetEvent("menuChanged", StaticFlags);
+        private static readonly Action MenusChangedHandler = QueueMenuFilter;
+        private static bool _menuRefreshQueued;
+        private static bool _rebuildMenusPending;
+        private static bool _refreshingMenus;
 
         static AgentForUnityContextMenus()
         {
             EditorApplication.update += AttachConsoleMenu;
+            AgentForUnityWindow.InterfaceLanguageChanged += RefreshMenuLanguage;
+            MenusChanged?.GetAddMethod(true)?.Invoke(null, new object[] { MenusChangedHandler });
+            RefreshMenuLanguage();
             AssemblyReloadEvents.beforeAssemblyReload += Shutdown;
             EditorApplication.quitting += Shutdown;
         }
 
-        [MenuItem("GameObject/" + AddLabel, false, 49)]
+        [MenuItem("GameObject/" + EnglishAddLabel, false, 49)]
+        [MenuItem("GameObject/" + ChineseAddLabel, false, 49)]
         private static void AddHierarchySelection(MenuCommand command)
         {
             AddObjects(GetContextObjects(command));
         }
 
-        [MenuItem("GameObject/" + AddLabel, true)]
+        [MenuItem("GameObject/" + EnglishAddLabel, true)]
+        [MenuItem("GameObject/" + ChineseAddLabel, true)]
         private static bool CanAddHierarchySelection()
         {
             return Selection.gameObjects.Length > 0;
         }
 
-        [MenuItem("Assets/" + AddLabel, false, 2000)]
+        [MenuItem("Assets/" + EnglishAddLabel, false, 2000)]
+        [MenuItem("Assets/" + ChineseAddLabel, false, 2000)]
         private static void AddProjectSelection()
         {
             AddObjects(Selection.objects.Where(EditorUtility.IsPersistent).ToArray());
         }
 
-        [MenuItem("Assets/" + AddLabel, true)]
+        [MenuItem("Assets/" + EnglishAddLabel, true)]
+        [MenuItem("Assets/" + ChineseAddLabel, true)]
         private static bool CanAddProjectSelection()
         {
             return Selection.objects.Any(EditorUtility.IsPersistent);
         }
 
-        [MenuItem("CONTEXT/Component/" + AddLabel)]
+        [MenuItem("CONTEXT/Component/" + EnglishAddLabel)]
+        [MenuItem("CONTEXT/Component/" + ChineseAddLabel)]
         private static void AddComponent(MenuCommand command)
         {
             AddObjects(new[] { command.context });
+        }
+
+        private static void RefreshMenuLanguage()
+        {
+            _rebuildMenusPending = true;
+            QueueMenuFilter();
+        }
+
+        private static void QueueMenuFilter()
+        {
+            if (_refreshingMenus || _menuRefreshQueued)
+                return;
+            _menuRefreshQueued = true;
+            EditorApplication.delayCall += ApplyMenuLanguage;
+        }
+
+        private static void ApplyMenuLanguage()
+        {
+            _menuRefreshQueued = false;
+            _refreshingMenus = true;
+            try
+            {
+                // Keep attribute-backed commands so Unity still passes the clicked MenuCommand.context.
+                // Rebuild restores the previously hidden language; remove only our inactive variants.
+                if (_rebuildMenusPending)
+                {
+                    _rebuildMenusPending = false;
+                    RebuildMenus?.Invoke(null, null);
+                }
+
+                var hiddenLabel = AgentForUnityWindow.IsChinese ? EnglishAddLabel : ChineseAddLabel;
+                foreach (var prefix in new[] { "GameObject/", "Assets/", "CONTEXT/Component/" })
+                {
+                    var path = prefix + hiddenLabel;
+                    if (MenuExists?.Invoke(null, new object[] { path }) is bool exists && exists)
+                        RemoveMenu?.Invoke(null, new object[] { path });
+                }
+            }
+            finally
+            {
+                _refreshingMenus = false;
+            }
         }
 
         private static Object[] GetContextObjects(MenuCommand command)
@@ -127,15 +187,16 @@ namespace AgentForUnity.Editor.UI
                     var menu = new GenericMenu();
                     if (entries.Count > 0)
                     {
-                        menu.AddItem(new GUIContent("Copy"), false, () => CopyLogs(entries));
+                        menu.AddItem(new GUIContent(AgentForUnityWindow.T("Copy", "复制")), false, () => CopyLogs(entries));
                         menu.AddSeparator(string.Empty);
                         menu.AddItem(new GUIContent(AddLabel), false, () => AddLogs(entries));
                     }
                     else
                     {
-                        menu.AddDisabledItem(new GUIContent(AddLabel + "（请先选中日志）"));
+                        menu.AddDisabledItem(new GUIContent(AddLabel +
+                            AgentForUnityWindow.T(" (select a log first)", "（请先选中日志）")));
                         if (!string.IsNullOrEmpty(error))
-                            menu.AddDisabledItem(new GUIContent("无法读取日志：" + error));
+                            menu.AddDisabledItem(new GUIContent(AgentForUnityWindow.T("Could not read logs: ", "无法读取日志：") + error));
                     }
 
                     // Snapshot and release the log lock before opening the menu or the Agent window.
@@ -226,6 +287,9 @@ namespace AgentForUnity.Editor.UI
         private static void Shutdown()
         {
             EditorApplication.update -= AttachConsoleMenu;
+            AgentForUnityWindow.InterfaceLanguageChanged -= RefreshMenuLanguage;
+            MenusChanged?.GetRemoveMethod(true)?.Invoke(null, new object[] { MenusChangedHandler });
+            EditorApplication.delayCall -= ApplyMenuLanguage;
             AssemblyReloadEvents.beforeAssemblyReload -= Shutdown;
             EditorApplication.quitting -= Shutdown;
             DetachConsoleMenu();
