@@ -1740,13 +1740,21 @@ namespace AgentForUnity.Editor.UI
             {
                 status = T("Checking for updates...", "正在检查更新…");
             }
-            else if (_service.PackageUpdateAvailable)
+            else if (_service.PackageUpdating)
             {
-                status = T("Update available: ", "发现新版本：") + _service.AvailablePackageVersion;
+                status = _service.PackageUpdateStatus.StartsWith("Resolving Git package", StringComparison.Ordinal)
+                    ? T("Resolving Git package...", "正在解析 Git 包…")
+                    : T("Updating Agent for Unity...", "正在更新 Agent for Unity…");
             }
             else if (_service.PackageUpdateFailed)
             {
-                status = T("Update check failed", "更新检查失败");
+                status = _service.PackageUpdateStatus == "Update check failed"
+                    ? T("Update check failed", "更新检查失败")
+                    : T("Update failed", "更新失败");
+            }
+            else if (_service.PackageUpdateAvailable)
+            {
+                status = T("Update available: ", "发现新版本：") + _service.AvailablePackageVersion;
             }
             else if (status.StartsWith("Up to date", StringComparison.Ordinal))
             {
@@ -1754,11 +1762,15 @@ namespace AgentForUnity.Editor.UI
             }
 
             _packageUpdateStatus.text = status;
-            _packageUpdateStatus.tooltip = _service.PackageUpdateStatus;
+            _packageUpdateStatus.tooltip = string.IsNullOrEmpty(_service.PackageUpdateError)
+                ? _service.PackageUpdateStatus
+                : _service.PackageUpdateError;
             _packageUpdateStatus.EnableInClassList("afu-package-update-status--error", _service.PackageUpdateFailed);
             _checkPackageUpdateButton.tooltip = T("Check for Agent for Unity updates", "检查 Agent for Unity 更新");
             _checkPackageUpdateButton.SetEnabled(!_service.PackageUpdateChecking && !_service.PackageUpdating);
-            _packageUpdateButton.style.display = _service.PackageUpdateAvailable ? DisplayStyle.Flex : DisplayStyle.None;
+            _packageUpdateButton.style.display = _service.PackageUpdateAvailable && !_service.PackageUpdating
+                ? DisplayStyle.Flex
+                : DisplayStyle.None;
             _packageUpdateButton.text = T("Update", "更新");
             _packageUpdateButton.tooltip = PackageUpdateTooltip();
             _packageUpdateButton.SetEnabled(_service.CanUpdatePackage);

@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEditor.PackageManager;
+using UnityEditor.PackageManager.Requests;
 using UnityEngine.Networking;
 
 namespace AgentForUnity.Editor.Application
@@ -23,6 +24,7 @@ namespace AgentForUnity.Editor.Application
         internal bool PackageUpdateAvailable { get; private set; }
         internal string AvailablePackageVersion { get; private set; } = string.Empty;
         internal string PackageUpdateStatus { get; private set; } = string.Empty;
+        internal string PackageUpdateError { get; private set; } = string.Empty;
         internal bool PackageUpdateFailed { get; private set; }
         internal bool CanUpdatePackage => PackageUpdateAvailable &&
                                           _packageUpdateCancellation == null &&
@@ -41,6 +43,7 @@ namespace AgentForUnity.Editor.Application
             PackageUpdateAvailable = false;
             AvailablePackageVersion = string.Empty;
             PackageUpdateFailed = false;
+            PackageUpdateError = string.Empty;
             PackageUpdateStatus = "Checking for updates...";
             MarkChanged();
             try
@@ -71,6 +74,7 @@ namespace AgentForUnity.Editor.Application
                 {
                     PackageUpdateFailed = true;
                     PackageUpdateStatus = "Update check failed";
+                    PackageUpdateError = exception.Message;
                     AddDiagnostic("Package update: " + exception.Message);
                 }
             }
@@ -93,6 +97,7 @@ namespace AgentForUnity.Editor.Application
             EditorApplication.LockReloadAssemblies();
             _packageUpdateReloadLocked = true;
             PackageUpdateFailed = false;
+            PackageUpdateError = string.Empty;
             PackageUpdateStatus = "Updating to " + AvailablePackageVersion + "...";
             MarkChanged();
             try
@@ -105,10 +110,15 @@ namespace AgentForUnity.Editor.Application
                 if (package.source == UnityEditor.PackageManager.PackageSource.Git)
                 {
                     // Git packages live in Library/PackageCache, not a writable Git checkout.
-                    // Let UPM resolve the manifest's #branch reference instead of pulling the cache.
-                    UnityEditor.PackageManager.Client.Resolve();
-                    PackageUpdateAvailable = false;
+                    // Explicitly adding the manifest's Git reference makes UPM refresh its locked revision.
+                    var packageReference = GetPackageDependencyReference();
                     PackageUpdateStatus = "Resolving Git package...";
+                    MarkChanged();
+                    var request = UnityEditor.PackageManager.Client.Add(packageReference);
+                    await WaitForPackageManagerRequestAsync(request, cancellation.Token);
+                    PackageUpdateAvailable = false;
+                    PackageUpdateStatus = "Updated to " + AvailablePackageVersion + ". Reloading Unity...";
+                    AssetDatabase.Refresh();
                     return;
                 }
 
@@ -125,6 +135,7 @@ namespace AgentForUnity.Editor.Application
                 {
                     PackageUpdateFailed = true;
                     PackageUpdateStatus = "Update failed";
+                    PackageUpdateError = exception.Message;
                     AddDiagnostic("Package update: " + exception.Message);
                 }
             }
@@ -161,6 +172,53 @@ namespace AgentForUnity.Editor.Application
         private static UnityEditor.PackageManager.PackageInfo GetInstalledPackageInfo()
         {
             return UnityEditor.PackageManager.PackageInfo.FindForAssetPath(PackageManifestPath);
+        }
+
+        private string GetPackageDependencyReference()
+        {
+            var manifestPath = Path.Combine(_projectRoot, "Packages", "manifest.json");
+            if (!File.Exists(manifestPath))
+                throw new InvalidOperationException("Could not find the Unity package manifest.");
+
+            var manifest = JObject.Parse(File.ReadAllText(manifestPath));
+            var packageReference = (manifest["dependencies"] as JObject)?.Value<string>("com.zlr.agentforunity");
+            if (string.IsNullOrWhiteSpace(packageReference) ||
+                !packageReference.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Agent for Unity is not installed from a supported Git URL.");
+            return packageReference;
+        }
+
+        private static Task WaitForPackageManagerRequestAsync(AddRequest request, CancellationToken token)
+        {
+            var completion = new TaskCompletionSource<bool>();
+            CancellationTokenRegistration registration = default;
+            EditorApplication.CallbackFunction poll = null;
+            poll = () =>
+            {
+                if (completion.Task.IsCompleted)
+                {
+                    EditorApplication.update -= poll;
+                    registration.Dispose();
+                    return;
+                }
+
+                if (!request.IsCompleted) return;
+                EditorApplication.update -= poll;
+                registration.Dispose();
+                if (request.Status == StatusCode.Failure)
+                {
+                    completion.TrySetException(new InvalidOperationException(
+                        request.Error?.message ?? "Unity Package Manager could not update the Git package."));
+                }
+                else
+                {
+                    completion.TrySetResult(true);
+                }
+            };
+            registration = token.Register(() => completion.TrySetCanceled());
+            EditorApplication.update += poll;
+            poll();
+            return completion.Task;
         }
 
         private static Task<string> DownloadTextAsync(string url, CancellationToken token)

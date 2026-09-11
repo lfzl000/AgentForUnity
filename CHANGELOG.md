@@ -2,6 +2,13 @@
 
 All notable changes to Agent for Unity are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- Git package updates now explicitly refresh the dependency URL and wait for Unity Package Manager to finish, preventing a completed resolve from leaving the package locked to the previous revision.
+- Package update failures now restore the retry action and expose the Package Manager error in the status tooltip.
+
 ## [0.7.0] - 2026-09-11
 
 ### Fixed
