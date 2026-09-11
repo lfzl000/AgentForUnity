@@ -46,7 +46,9 @@ namespace AgentForUnity.Editor.Application
             try
             {
                 var installedVersion = GetInstalledPackageVersion();
-                var manifest = await DownloadTextAsync(RemotePackageManifestUrl, cancellation.Token);
+                var manifest = await DownloadTextAsync(
+                    RemotePackageManifestUrl + "?cachebust=" + DateTime.UtcNow.Ticks,
+                    cancellation.Token);
                 var remoteVersion = JObject.Parse(manifest).Value<string>("version");
                 if (!Version.TryParse(installedVersion, out var installed) ||
                     !Version.TryParse(remoteVersion, out var remote))
@@ -95,9 +97,20 @@ namespace AgentForUnity.Editor.Application
             MarkChanged();
             try
             {
-                var packagePath = GetInstalledPackagePath();
+                var package = GetInstalledPackageInfo();
+                var packagePath = package?.resolvedPath;
                 if (string.IsNullOrEmpty(packagePath))
                     throw new InvalidOperationException("This package does not expose a local path.");
+
+                if (package.source == UnityEditor.PackageManager.PackageSource.Git)
+                {
+                    // Git packages live in Library/PackageCache, not a writable Git checkout.
+                    // Let UPM resolve the manifest's #branch reference instead of pulling the cache.
+                    UnityEditor.PackageManager.Client.Resolve();
+                    PackageUpdateAvailable = false;
+                    PackageUpdateStatus = "Resolving Git package...";
+                    return;
+                }
 
                 var git = new AgentGitOperations();
                 await git.OpenAsync(packagePath, cancellation.Token);
@@ -139,16 +152,22 @@ namespace AgentForUnity.Editor.Application
 
         private static string GetInstalledPackagePath()
         {
-            var package = UnityEditor.PackageManager.PackageInfo.FindForAssetPath(PackageManifestPath);
+            var package = GetInstalledPackageInfo();
             return package == null || string.IsNullOrEmpty(package.resolvedPath)
                 ? null
                 : Path.GetFullPath(package.resolvedPath);
+        }
+
+        private static UnityEditor.PackageManager.PackageInfo GetInstalledPackageInfo()
+        {
+            return UnityEditor.PackageManager.PackageInfo.FindForAssetPath(PackageManifestPath);
         }
 
         private static Task<string> DownloadTextAsync(string url, CancellationToken token)
         {
             var completion = new TaskCompletionSource<string>();
             var request = UnityWebRequest.Get(url);
+            request.SetRequestHeader("Cache-Control", "no-cache");
             var registration = token.Register(request.Abort);
             var operation = request.SendWebRequest();
             operation.completed += _ =>

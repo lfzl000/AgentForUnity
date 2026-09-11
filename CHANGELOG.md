@@ -2,6 +2,12 @@
 
 All notable changes to Agent for Unity are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- Git-installed packages now update through Unity Package Manager resolution instead of attempting to pull the read-only Package Cache, and version checks bypass cached GitHub manifests.
+
 ## [0.6.0] - 2026-09-11
 
 ### Added
