@@ -1,6 +1,6 @@
 {
   "name": "com.zlr.agentforunity",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "displayName": "Agent for Unity",
   "description": "An Editor-only Codex client for Unity with project context, approval cards, streamed activity, turn diffs, compile feedback, and Domain Reload recovery.",
   "unity": "2022.3",
