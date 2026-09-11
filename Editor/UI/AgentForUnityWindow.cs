@@ -89,6 +89,7 @@ namespace AgentForUnity.Editor.UI
         private Button _addSceneButton;
         private Button _addGitDiffButton;
         private Button _addScreenshotButton;
+        private bool _promptEditScheduled;
         private Button _chatAllowOnceButton;
         private Button _chatAllowSessionButton;
         private Button _chatDeclineButton;
@@ -158,6 +159,7 @@ namespace AgentForUnity.Editor.UI
 
         public void CreateGUI()
         {
+            _promptEditScheduled = false;
             StopTurnActivityAnimation();
             rootVisualElement.Clear();
             rootVisualElement.UnregisterCallback<GeometryChangedEvent>(OnGeometryChanged);
@@ -354,6 +356,8 @@ namespace AgentForUnity.Editor.UI
         private void RegisterUiCallbacks()
         {
             _promptField.multiline = true;
+            // Create the native multiline ScrollView so clipped text supports mouse-wheel scrolling.
+            _promptField.SetVerticalScrollerVisibility(ScrollerVisibility.Auto);
             _messagesScroll.mode = ScrollViewMode.Vertical;
             _messagesScroll.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
             _detailsScroll.mode = ScrollViewMode.Vertical;
@@ -1074,6 +1078,13 @@ namespace AgentForUnity.Editor.UI
                     continue;
                 }
 
+                if (context.Kind == AgentContextKind.Recording)
+                {
+                    _contextsList.Add(CreateRecordingPreview(context.Label, context.Source,
+                        () => _service.RemoveContext(context.Id)));
+                    continue;
+                }
+
                 var chip = new VisualElement();
                 chip.AddToClassList("afu-context-chip");
                 var label = new Label($"{context.Label} · {context.CharacterCount:N0}");
@@ -1123,6 +1134,12 @@ namespace AgentForUnity.Editor.UI
                         attachment.Source,
                         null,
                         row.PreviewTextures));
+                    continue;
+                }
+
+                if (attachment.Kind == AgentContextKind.Recording)
+                {
+                    row.Attachments.Add(CreateRecordingPreview(attachment.Label, attachment.Source, null));
                     continue;
                 }
 
@@ -1895,7 +1912,12 @@ namespace AgentForUnity.Editor.UI
 
         private void SendPrompt()
         {
-            var prompt = _promptField.value == null ? string.Empty : _promptField.value.Trim();
+            SendPrompt(_promptField.value);
+        }
+
+        private void SendPrompt(string prompt)
+        {
+            prompt = prompt == null ? string.Empty : prompt.Trim();
             if ((!_service.CanSend && !_service.CanSteer) ||
                 (prompt.Length == 0 && !_service.HasContextAttachments))
             {
@@ -1910,18 +1932,68 @@ namespace AgentForUnity.Editor.UI
             {
                 _service.Send(prompt);
             }
+            _promptField.SelectRange(0, 0);
             _promptField.SetValueWithoutNotify(string.Empty);
             UpdateActionAvailability();
         }
 
         private void OnPromptKeyDown(KeyDownEvent evt)
         {
+            var isReturnKey = evt.keyCode == KeyCode.Return || evt.keyCode == KeyCode.KeypadEnter;
+            if (isReturnKey || evt.character == '\n' || evt.character == '\r')
+            {
+                // Leave IME candidate confirmation to the input method.
+                if (!string.IsNullOrEmpty(Input.compositionString))
+                    return;
+
+                evt.PreventDefault();
+                evt.StopImmediatePropagation();
+                // macOS also emits a character-only event for Return. Consume it without
+                // submitting/inserting twice or letting Shift+newline end text editing.
+                if (!isReturnKey || _promptEditScheduled)
+                    return;
+
+                // Apply text/cursor changes after keyboard event dispatch has finished.
+                var field = _promptField;
+                var input = field.Q(TextField.textInputUssName);
+                var textEditor = input as TextElement ?? input?.Q<TextElement>();
+                var prompt = field.value ?? string.Empty;
+                var insertNewline = evt.shiftKey;
+                var cursor = Mathf.Clamp(field.cursorIndex, 0, prompt.Length);
+                var selection = Mathf.Clamp(field.selectIndex, 0, prompt.Length);
+                var start = Math.Min(cursor, selection);
+                var end = Math.Max(cursor, selection);
+                _promptEditScheduled = true;
+                field.schedule.Execute(() =>
+                {
+                    if (_promptField != field || field.panel == null)
+                        return;
+
+                    _promptEditScheduled = false;
+                    if (insertNewline)
+                    {
+                        field.SelectRange(0, 0);
+                        field.value = prompt.Remove(start, end - start).Insert(start, "\n");
+                        // Focus the editable leaf, not the composite TextField: Unity disables
+                        // the field's focus delegation when its composite root receives focus.
+                        textEditor?.Focus();
+                        field.SelectRange(start + 1, start + 1);
+                    }
+                    else if (_service != null)
+                    {
+                        SendPrompt(prompt);
+                        textEditor?.Focus();
+                    }
+                });
+                return;
+            }
+
             if (evt.keyCode != KeyCode.V || !evt.actionKey)
             {
                 return;
             }
 
-            if (TryAddClipboardScreenshot(false))
+            if (TryAddClipboardRecording(false) || TryAddClipboardScreenshot(false))
             {
                 evt.PreventDefault();
                 evt.StopImmediatePropagation();
@@ -1941,6 +2013,10 @@ namespace AgentForUnity.Editor.UI
                 false,
                 AddClipboardScreenshot);
             menu.AddItem(
+                new GUIContent(T("Clipboard Recording", "剪贴板录屏")),
+                false,
+                () => TryAddClipboardRecording(true));
+            menu.AddItem(
                 new GUIContent(T("Game View", "Game 视图")),
                 false,
                 AddGameViewScreenshot);
@@ -1959,6 +2035,18 @@ namespace AgentForUnity.Editor.UI
             {
                 ShowNotification(new GUIContent(error));
             }
+        }
+
+        private bool TryAddClipboardRecording(bool showMissingVideoNotice)
+        {
+            if (_service.TryAddClipboardRecording(out var foundVideo, out var error))
+                return true;
+
+            if ((showMissingVideoNotice || foundVideo) && !string.IsNullOrWhiteSpace(error))
+                ShowNotification(new GUIContent(error));
+
+            // A recognized recording must not fall through to its clipboard thumbnail or text on failure.
+            return foundVideo;
         }
 
         private bool TryAddClipboardScreenshot(bool showMissingImageNotice)
@@ -2094,10 +2182,10 @@ namespace AgentForUnity.Editor.UI
             SetText("add-git-diff-button", "+ Git Diff", "+ Git 差异");
             SetText(
                 "add-screenshot-button",
-                "+ Screenshot",
-                "+ 截图",
-                "Attach an image from the clipboard or Game view",
-                "从剪贴板或 Game 视图附加图片");
+                "+ Media",
+                "+ 图片/录屏",
+                "Attach a clipboard image or recording, or capture the Game view",
+                "附加剪贴板图片、录屏，或捕获 Game 视图");
             SetText("interrupt-button", "Stop", "停止");
             SetText("chat-allow-once-button", "Allow Once", "仅允许一次");
             SetText("chat-allow-session-button", "Allow Session", "本次会话允许");
@@ -2547,8 +2635,8 @@ namespace AgentForUnity.Editor.UI
             contextToolbar.Add(Button("add-git-diff-button", "+ Git Diff", "Attach the current unstaged Git diff"));
             contextToolbar.Add(Button(
                 "add-screenshot-button",
-                "+ Screenshot",
-                "Attach an image from the clipboard or Game view"));
+                "+ Media",
+                "Attach a clipboard image or recording, or capture the Game view"));
             composer.Add(contextToolbar);
             composer.Add(Element("contexts-list", "afu-contexts-list"));
             var prompt = new TextField { name = "prompt-field", multiline = true };
@@ -2711,6 +2799,7 @@ namespace AgentForUnity.Editor.UI
             chatPane.style.flexGrow = 1f;
             _messagesScroll.style.flexGrow = 1f;
             _promptField.style.minHeight = 70f;
+            _promptField.style.maxHeight = 180f;
             detailsPane.style.width = 280f;
             detailsPane.style.paddingLeft = 8f;
             detailsPane.style.paddingRight = 8f;
@@ -2746,6 +2835,32 @@ namespace AgentForUnity.Editor.UI
         private static Button Button(string name, string text, string tooltip)
         {
             return new Button { name = name, text = text, tooltip = tooltip };
+        }
+
+        private static VisualElement CreateRecordingPreview(string label, string path, Action removeAction)
+        {
+            var preview = new VisualElement { tooltip = path };
+            preview.AddToClassList("afu-context-chip");
+            var available = !string.IsNullOrWhiteSpace(path) && File.Exists(path);
+            var open = new Button(() =>
+            {
+                if (File.Exists(path))
+                    EditorUtility.OpenWithDefaultApp(path);
+            })
+            {
+                text = "▶ " + label,
+                tooltip = available ? T("Play recording", "播放录屏") : T("Recording unavailable", "录屏不可用")
+            };
+            open.AddToClassList("afu-context-chip__label");
+            open.SetEnabled(available);
+            preview.Add(open);
+            if (removeAction != null)
+            {
+                var remove = new Button(removeAction) { text = "×", tooltip = T("Remove recording", "移除录屏") };
+                remove.AddToClassList("afu-context-chip__remove");
+                preview.Add(remove);
+            }
+            return preview;
         }
 
         private static VisualElement CreateScreenshotPreview(

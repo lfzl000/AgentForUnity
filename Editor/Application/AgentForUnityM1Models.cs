@@ -39,7 +39,8 @@ namespace AgentForUnity.Editor.Application
         File,
         Scene,
         GitDiff,
-        Screenshot
+        Screenshot,
+        Recording
     }
 
     internal enum AgentProjectChangeType

@@ -90,6 +90,8 @@ namespace AgentForUnity.Editor.Application
                             throw new InvalidOperationException("Git is unavailable for this project. Check the Git status in Project Changes.");
                         item = AgentForUnityContextCollector.CaptureGitDiff(_projectRoot);
                         break;
+                    case AgentContextKind.Recording:
+                        throw new InvalidOperationException("Use the clipboard recording action to attach a video.");
                     case AgentContextKind.Screenshot:
                         throw new InvalidOperationException("Use the clipboard screenshot action to attach an image.");
                     default:
@@ -151,6 +153,26 @@ namespace AgentForUnity.Editor.Application
                 string.Empty,
                 DateTime.Now);
             AddOrReplaceContext(item);
+            SaveState();
+            MarkChanged();
+            return true;
+        }
+
+        internal bool TryAddClipboardRecording(out bool foundVideo, out string error)
+        {
+            if (!AgentClipboardVideoCapture.TryCapture(_projectRoot, out var path, out var label,
+                    out foundVideo, out error))
+                return false;
+
+            var content = "Local screen recording attachment\n" +
+                          "Path: " + path + "\n" +
+                          "Format: " + Path.GetExtension(path) + "\n" +
+                          "Size: " + new FileInfo(path).Length.ToString(CultureInfo.InvariantCulture) + " bytes\n" +
+                          "This is a local video file reference, not decoded video input. " +
+                          "Video analysis requires opening this file with available media tools or extracting frames. " +
+                          "Audio is not transcribed. File availability and tool access depend on the current environment.";
+            AddOrReplaceContext(new AgentContextItem(null, AgentContextKind.Recording,
+                label, path, content, DateTime.Now));
             SaveState();
             MarkChanged();
             return true;
@@ -545,7 +567,7 @@ namespace AgentForUnity.Editor.Application
                         continue;
                     }
 
-                    if (kind == AgentContextKind.Screenshot)
+                    if (kind == AgentContextKind.Screenshot || kind == AgentContextKind.Recording)
                     {
                         if (!AgentClipboardImageCapture.IsManagedAttachmentPath(_projectRoot, draft.source) ||
                             !File.Exists(draft.source))
@@ -621,6 +643,13 @@ namespace AgentForUnity.Editor.Application
             if (!_projectContextSent)
             {
                 result.Insert(0, AgentForUnityContextCollector.CaptureProject(_projectRoot, true));
+            }
+
+            foreach (var attachment in result.Where(item => item.Kind == AgentContextKind.Screenshot ||
+                                                             item.Kind == AgentContextKind.Recording))
+            {
+                if (!File.Exists(attachment.Source))
+                    throw new InvalidOperationException("Attachment is unavailable; remove it and attach it again: " + attachment.Label);
             }
 
             var total = result.Sum(item => item.CharacterCount);
@@ -877,13 +906,14 @@ namespace AgentForUnity.Editor.Application
                                             item.Kind != AgentContextKind.File &&
                                             item.Kind != AgentContextKind.Selection &&
                                             item.Kind != AgentContextKind.Console &&
-                                            item.Kind != AgentContextKind.Screenshot);
+                                            item.Kind != AgentContextKind.Screenshot &&
+                                            item.Kind != AgentContextKind.Recording);
             _contexts.Add(item);
         }
 
         private void DeleteDraftAttachmentFile(AgentContextItem item)
         {
-            if (item == null || item.Kind != AgentContextKind.Screenshot ||
+            if (item == null || (item.Kind != AgentContextKind.Screenshot && item.Kind != AgentContextKind.Recording) ||
                 !AgentClipboardImageCapture.IsManagedAttachmentPath(_projectRoot, item.Source))
             {
                 return;
@@ -898,7 +928,7 @@ namespace AgentForUnity.Editor.Application
             }
             catch (Exception exception)
             {
-                AddDiagnostic("Could not delete screenshot attachment: " + exception.Message);
+                AddDiagnostic("Could not delete media attachment: " + exception.Message);
             }
         }
 

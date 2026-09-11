@@ -83,7 +83,7 @@
                         <ui:Button name="add-file-button" text="+ File" />
                         <ui:Button name="add-scene-button" text="+ Scene" />
                         <ui:Button name="add-git-diff-button" text="+ Git Diff" />
-                        <ui:Button name="add-screenshot-button" text="+ Screenshot" tooltip="Attach an image from the clipboard or Game view" />
+                        <ui:Button name="add-screenshot-button" text="+ Media" tooltip="Attach a clipboard image or recording, or capture the Game view" />
                     </ui:VisualElement>
                     <ui:VisualElement name="contexts-list" class="afu-contexts-list" />
                     <ui:TextField name="prompt-field" multiline="true" class="afu-prompt" />
