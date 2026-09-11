@@ -1760,14 +1760,30 @@ namespace AgentForUnity.Editor.UI
             _checkPackageUpdateButton.SetEnabled(!_service.PackageUpdateChecking && !_service.PackageUpdating);
             _packageUpdateButton.style.display = _service.PackageUpdateAvailable ? DisplayStyle.Flex : DisplayStyle.None;
             _packageUpdateButton.text = T("Update", "更新");
-            _packageUpdateButton.tooltip = _service.CanUpdatePackage
-                ? T(
-                    "Update Agent for Unity using a fast-forward-only Git pull. Local changes must be committed or stashed first.",
-                    "通过仅快进的 Git 拉取更新 Agent for Unity。本地变更需先提交或暂存。")
-                : T(
-                    "Finish the active Unity operation before updating Agent for Unity.",
-                    "请先完成当前 Unity 操作，再更新 Agent for Unity。");
+            _packageUpdateButton.tooltip = PackageUpdateTooltip();
             _packageUpdateButton.SetEnabled(_service.CanUpdatePackage);
+        }
+
+        private string PackageUpdateTooltip()
+        {
+            if (_service.CanUpdatePackage)
+            {
+                return T(
+                    "Update Agent for Unity using a fast-forward-only Git pull. Local changes must be committed or stashed first.",
+                    "通过仅快进的 Git 拉取更新 Agent for Unity。本地变更需先提交或暂存。");
+            }
+
+            if (_service.IsTurnActive)
+                return T("Finish the active conversation before updating.", "请先完成当前对话，再更新。");
+            if (_service.GitBusy)
+                return T("Wait for the current Git action to finish before updating.", "请等待当前 Git 操作完成，再更新。");
+            if (_service.ToolingSetupPending && !_service.ToolingSetupFailed)
+                return T("Finish Unity Tooling setup before updating.", "请先完成 Unity 工具配置，再更新。");
+            if (EditorApplication.isCompiling || EditorApplication.isUpdating)
+                return T("Wait for Unity to finish compiling or updating.", "请等待 Unity 完成编译或更新。");
+            if (EditorApplication.isPlayingOrWillChangePlaymode)
+                return T("Exit Play Mode before updating.", "请先退出 Play Mode，再更新。");
+            return T("Checking update availability.", "正在检查更新可用性。");
         }
 
         private void RefreshToolingBackendField()

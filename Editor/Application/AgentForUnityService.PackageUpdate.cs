@@ -26,7 +26,8 @@ namespace AgentForUnity.Editor.Application
         internal bool PackageUpdateFailed { get; private set; }
         internal bool CanUpdatePackage => PackageUpdateAvailable &&
                                           _packageUpdateCancellation == null &&
-                                          !_disposed && !IsTurnActive && !GitBusy && !UnityToolingBusy &&
+                                          !_disposed && !IsTurnActive && !GitBusy &&
+                                          !(ToolingSetupPending && !ToolingSetupFailed) &&
                                           !EditorApplication.isCompiling && !EditorApplication.isUpdating &&
                                           !EditorApplication.isPlayingOrWillChangePlaymode;
 
