@@ -2,6 +2,13 @@
 
 All notable changes to Agent for Unity are documented in this file.
 
+## [0.8.1] - 2026-09-14
+
+### Fixed
+
+- Fixed Smart Console stack-frame resolution for Unity project source paths and improved long-context card layout.
+- Unity Tooling status and completed turns now clearly explain the missing inspection and validation capabilities when the backend is unavailable.
+
 ## [0.8.0] - 2026-09-14
 
 ### Added
