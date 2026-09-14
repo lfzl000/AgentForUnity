@@ -2,6 +2,12 @@
 
 All notable changes to Agent for Unity are documented in this file.
 
+## [0.8.2] - 2026-09-14
+
+### Fixed
+
+- Agent for Unity no longer connects to the Codex App Server automatically when the window opens; connection now starts only after clicking Connect.
+
 ## [0.8.1] - 2026-09-14
 
 ### Fixed

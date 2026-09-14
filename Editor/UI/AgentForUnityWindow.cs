@@ -138,7 +138,6 @@ namespace AgentForUnity.Editor.UI
             _service = AgentForUnityService.Instance;
             _service.Changed -= OnServiceChanged;
             _service.Changed += OnServiceChanged;
-            _service.EnsureStarted();
             _service.RefreshUnityTooling();
             _service.CheckForPackageUpdate();
         }
@@ -1668,6 +1667,10 @@ namespace AgentForUnity.Editor.UI
             _gitStatus.style.display = string.IsNullOrEmpty(_service.GitStatus) ? DisplayStyle.None : DisplayStyle.Flex;
             _gitDetails.style.display = string.IsNullOrEmpty(_service.GitDetails) ? DisplayStyle.None : DisplayStyle.Flex;
             var hasContext = _service.HasContextAttachments;
+            _reconnectButton.text = _service.CanDisconnect ? T("Reconnect", "重新连接") : T("Connect", "连接");
+            _reconnectButton.tooltip = _service.CanDisconnect
+                ? T("Restart connection detection", "重新检测连接")
+                : T("Connect to the Codex App Server", "连接 Codex App Server");
             _sendButton.text = _service.CanSteer ? T("Steer", "引导") : T("Send", "发送");
             _sendButton.tooltip = _service.ToolingBlocksNewTurns
                 ? T(
@@ -2265,7 +2268,7 @@ namespace AgentForUnity.Editor.UI
             _reloadDomainToggle.label = T("Reload Domain", "重新加载 Domain");
             _reloadSceneToggle.label = T("Reload Scene", "重新加载 Scene");
             SetText("refresh-tooling-button", "↻", "↻", "Refresh the selected Unity tooling backend", "刷新所选 Unity 能力来源");
-            SetText("reconnect-button", "Reconnect", "重新连接", "Restart connection detection", "重新检测连接");
+            SetText("reconnect-button", "Connect", "连接", "Connect to the Codex App Server", "连接 Codex App Server");
             SetText("disconnect-button", "Disconnect", "断开连接", "Stop the Codex App Server connection", "停止 Codex App Server 连接");
             SetText("new-thread-button", "New Thread", "新建对话", "Start a new project-scoped thread", "开始一个项目范围的新对话");
             SetText("refresh-threads-button", "↻", "↻", "Reload conversations for this Unity project", "重新加载此 Unity 项目的对话");
@@ -2653,7 +2656,7 @@ namespace AgentForUnity.Editor.UI
             languageField.AddToClassList("afu-select");
             languageField.AddToClassList("afu-select--language");
             headerActions.Add(languageField);
-            headerActions.Add(Button("reconnect-button", "Reconnect", "Restart connection detection"));
+            headerActions.Add(Button("reconnect-button", "Connect", "Connect to the Codex App Server"));
             headerActions.Add(Button("disconnect-button", "Disconnect", "Stop the Codex App Server connection"));
             header.Add(headerActions);
             windowRoot.Add(header);
