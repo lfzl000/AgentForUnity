@@ -829,6 +829,7 @@
 .afu-context-chip {
     flex-direction: row;
     align-items: center;
+    max-width: 100%;
     margin-right: 4px;
     margin-bottom: 3px;
     padding: 2px 4px 2px 6px;
@@ -838,11 +839,17 @@
 
 .afu-context-chip__label {
     font-size: 10px;
+    min-width: 0;
+    flex-shrink: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .afu-context-chip__remove {
     width: 18px;
     height: 17px;
+    flex-shrink: 0;
     margin-left: 3px;
     padding: 0;
     font-size: 10px;

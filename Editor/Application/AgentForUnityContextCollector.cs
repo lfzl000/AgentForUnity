@@ -48,7 +48,7 @@ namespace AgentForUnity.Editor.Application
             @"(?im)(api[_-]?key|access[_-]?token|authorization|password|secret)\s*[:=]\s*([^\s,;]+)",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
         private static readonly Regex StackFramePattern = new Regex(
-            @"(?<path>(?:Assets[\\/])?[^\\r\\n:()]+?\.cs)\:(?<line>\d+)",
+            @"(?<path>(?:Assets[\\/])?[^\r\n:()]+?\.cs):(?<line>\d+)",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         static AgentForUnityContextCollector()
@@ -170,24 +170,19 @@ namespace AgentForUnity.Editor.Application
             var content = new StringBuilder(raw.Content)
                 .AppendLine().AppendLine("Smart Unity diagnostic context");
             var seenFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var matchingTypes = new HashSet<string>(StringComparer.Ordinal);
+            var matchingScripts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var entry in selectedEntries ?? Array.Empty<AgentConsoleLogEntry>())
             {
-                foreach (Match match in StackFramePattern.Matches(entry?.StackTrace ?? string.Empty))
+                foreach (var frame in ExtractStackFrames(entry?.StackTrace ?? string.Empty))
                 {
-                    var relative = match.Groups["path"].Value.Replace('\\', '/');
-                    var absolute = Path.IsPathRooted(relative)
-                        ? relative
-                        : Path.Combine(projectRoot, relative.StartsWith("Assets/", StringComparison.Ordinal)
-                            ? relative
-                            : "Assets/" + relative);
+                    var relative = frame.Path;
+                    var absolute = Path.Combine(projectRoot, relative);
                     relative = ToProjectRelative(projectRoot, absolute);
                     if (!relative.StartsWith("Assets/", StringComparison.Ordinal))
                         continue;
                     if (!File.Exists(absolute) || !seenFiles.Add(relative))
                         continue;
-                    if (!int.TryParse(match.Groups["line"].Value, out var line))
-                        continue;
+                    var line = frame.Line;
 
                     var lines = File.ReadAllLines(absolute);
                     var start = Math.Max(1, line - 20);
@@ -196,15 +191,13 @@ namespace AgentForUnity.Editor.Application
                         .Append(" line ").Append(line).AppendLine();
                     for (var index = start; index <= end; index++)
                         content.Append(index).Append(": ").AppendLine(Redact(lines[index - 1]));
-                    var className = Path.GetFileNameWithoutExtension(relative);
-                    if (!string.IsNullOrEmpty(className))
-                        matchingTypes.Add(className);
+                    matchingScripts.Add(relative);
                 }
             }
 
             var matched = Resources.FindObjectsOfTypeAll<MonoBehaviour>()
                 .Where(value => value != null && value.gameObject.scene.IsValid() &&
-                                matchingTypes.Contains(value.GetType().Name))
+                                IsMatchingScript(projectRoot, value, matchingScripts))
                 .Take(8)
                 .ToList();
             if (matched.Count > 0)
@@ -222,6 +215,57 @@ namespace AgentForUnity.Editor.Application
 
             return Create(AgentContextKind.Console, "Smart Console · " + raw.Label.Substring("Console · ".Length),
                 "Unity Console (smart)", content.ToString(), false);
+        }
+
+        private static bool IsMatchingScript(string projectRoot, MonoBehaviour component, ISet<string> scriptPaths)
+        {
+            var script = MonoScript.FromMonoBehaviour(component);
+            if (script == null)
+                return false;
+            var path = AssetDatabase.GetAssetPath(script);
+            return scriptPaths.Contains(ToProjectRelative(projectRoot, path).Replace('\\', '/'));
+        }
+
+        private static IEnumerable<StackFrameInfo> ExtractStackFrames(string stackTrace)
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (Match match in StackFramePattern.Matches(stackTrace ?? string.Empty))
+            {
+                if (!int.TryParse(match.Groups["line"].Value, out var line))
+                    continue;
+                var path = match.Groups["path"].Value.Replace('\\', '/');
+                if (!path.StartsWith("Assets/", StringComparison.Ordinal))
+                    path = "Assets/" + path;
+                if (seen.Add(path))
+                    yield return new StackFrameInfo(path, line);
+            }
+
+            var search = stackTrace ?? string.Empty;
+            var index = 0;
+            while ((index = search.IndexOf("Assets/", index, StringComparison.Ordinal)) >= 0)
+            {
+                var end = search.IndexOf(".cs:", index, StringComparison.OrdinalIgnoreCase);
+                if (end < 0)
+                    break;
+                end += 3;
+                var lineStart = end + 1;
+                var lineEnd = lineStart;
+                while (lineEnd < search.Length && char.IsDigit(search[lineEnd])) lineEnd++;
+                if (int.TryParse(search.Substring(lineStart, lineEnd - lineStart), out var line))
+                {
+                    var path = search.Substring(index, end - index).Replace('\\', '/');
+                    if (seen.Add(path))
+                        yield return new StackFrameInfo(path, line);
+                }
+                index = lineEnd;
+            }
+        }
+
+        private readonly struct StackFrameInfo
+        {
+            internal StackFrameInfo(string path, int line) { Path = path; Line = line; }
+            internal string Path { get; }
+            internal int Line { get; }
         }
 
         internal static AgentContextItem CaptureFile(string projectRoot, string absolutePath)
