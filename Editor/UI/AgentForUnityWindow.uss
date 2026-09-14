@@ -388,6 +388,7 @@
 
 .afu-thread-bar {
     min-height: 28px;
+    min-width: 0;
     padding: 4px 10px;
     flex-direction: row;
     align-items: center;
@@ -404,7 +405,9 @@
 .afu-thread-value {
     min-width: 0;
     flex-grow: 1;
+    flex-shrink: 1;
     margin-left: 4px;
+    overflow: hidden;
     opacity: 0.78;
     text-overflow: ellipsis;
     white-space: nowrap;
