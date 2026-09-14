@@ -175,6 +175,7 @@ namespace AgentForUnity.Editor.Application
 
     internal sealed partial class AgentForUnityService : IDisposable
     {
+        private const string ConnectionRequestedSessionKey = "AgentForUnity.ConnectionRequested";
         private const int MaxDiagnostics = 200;
         private const int MaxRestoredMessages = 100;
         private const int MaxPersistedContextUsageEntries = 100;
@@ -404,6 +405,17 @@ namespace AgentForUnity.Editor.Application
             ConnectInternal(true);
         }
 
+        internal void RestoreConnectionAfterDomainReload()
+        {
+            if (_disposed || _started || !SessionState.GetBool(ConnectionRequestedSessionKey, false))
+            {
+                return;
+            }
+
+            _started = true;
+            ConnectInternal(false);
+        }
+
         internal void HandlePlayModeEntryBlocked()
         {
             if (_disposed || (!IsTurnStarting && !GitBusy))
@@ -431,6 +443,7 @@ namespace AgentForUnity.Editor.Application
             }
 
             _started = true;
+            SessionState.SetBool(ConnectionRequestedSessionKey, true);
             _reconnectAttempts = 0;
             _nextReconnectTime = -1d;
             _connectionStableSince = -1d;
@@ -452,6 +465,7 @@ namespace AgentForUnity.Editor.Application
             }
 
             _started = false;
+            SessionState.SetBool(ConnectionRequestedSessionKey, false);
             _reconnectAttempts = 0;
             _nextReconnectTime = -1d;
             _connectionStableSince = -1d;

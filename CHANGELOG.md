@@ -2,6 +2,12 @@
 
 All notable changes to Agent for Unity are documented in this file.
 
+## [0.8.3] - 2026-09-14
+
+### Fixed
+
+- Preserve an intentional Codex connection across Unity script compilation and Domain Reload while keeping first launch disconnected by default.
+
 ## [0.8.2] - 2026-09-14
 
 ### Fixed

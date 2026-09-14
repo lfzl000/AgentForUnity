@@ -14,6 +14,7 @@ namespace AgentForUnity.Editor.Application
             EditorApplication.playModeStateChanged += HandlePlayModeStateChanged;
             AssemblyReloadEvents.beforeAssemblyReload += Shutdown;
             EditorApplication.quitting += Shutdown;
+            Service.RestoreConnectionAfterDomainReload();
         }
 
         private static void HandlePlayModeStateChanged(PlayModeStateChange state)
