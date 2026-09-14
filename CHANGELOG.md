@@ -2,6 +2,15 @@
 
 All notable changes to Agent for Unity are documented in this file.
 
+## [0.8.0] - 2026-09-14
+
+### Added
+
+- Expanded Unity context capture with Global Object ID query handles, prefab metadata, missing-script detection, serialized component properties, and bounded object-reference details.
+- Added smart Console context that includes source excerpts and matching scene component snapshots for faster diagnosis.
+- Added lazy Unity inspection guidance so targeted tooling queries can fill in omitted details from bounded context snapshots.
+- Expanded Unity tooling guidance and context-menu actions for the active backend and project state.
+
 ## [0.7.1] - 2026-09-11
 
 ### Fixed
