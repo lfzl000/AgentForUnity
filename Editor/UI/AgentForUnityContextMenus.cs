@@ -139,7 +139,7 @@ namespace AgentForUnity.Editor.UI
 
         private static void AddLogs(IReadOnlyList<AgentConsoleLogEntry> entries)
         {
-            if (AgentForUnityService.Instance.TryAddConsoleContext(entries, out var error))
+            if (AgentForUnityService.Instance.TryAddSmartConsoleContext(entries, out var error))
                 AgentForUnityWindow.OpenForContext();
             else
                 EditorUtility.DisplayDialog("Agent for Unity", error, "OK");

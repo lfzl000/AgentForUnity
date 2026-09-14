@@ -37,6 +37,10 @@ The window streams the agent response and associated activity. Use **New Thread*
 
 Attach Project, Selection, Console entries, files, scenes, or Git Diff as context before sending. Right-click selected objects, components, or Console entries and choose **Add to AgentForUnity** to add them to the composer.
 
+Selection context includes a bounded Unity Object Snapshot with stable object IDs, scene and hierarchy location, component types, serialized fields, Prefab information, missing-script markers, and object references. Click the context preview button to inspect the exact redacted payload that will be sent. Console context added from the Console menu also includes bounded source excerpts and matching scene component snapshots when stack frames can be resolved.
+
+Snapshots are intentionally bounded. When a requested field is omitted, Agent for Unity can use the active Unity Tooling backend to query that object by its Global Object ID or project path. If Unity Tooling is not enabled and connected, on-demand object, component, Prefab, and scene inspection is unavailable; Unity Editor operations and validation are also unavailable. The Tooling panel and completed-turn message both show an explicit **Enable and connect Unity Tooling** prompt. Text and file-based work can continue.
+
 Use **+ Media** to attach an image from the clipboard or capture the Game view. With the prompt focused, press **Cmd+V** on macOS or **Ctrl+V** on Windows to attach a clipboard image. Media attachments stay outside `Assets` and can be removed before sending.
 
 For recordings, copy a local video file and paste it into the prompt, or choose **+ Media → Clipboard Recording**. macOS and Windows file clipboard formats are supported; macOS can also read raw movie clipboard data. Supported file extensions: `.mp4`, `.mov`, `.m4v`, `.webm`, `.mkv`, `.avi` (up to 512 MiB per recording; the first video is attached when multiple files are copied). A recording can be sent without text. Click its attachment card to play it in the default application. Removing a draft deletes only the managed copy, never the original. Sent copies remain available for conversation history.

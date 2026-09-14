@@ -37,11 +37,18 @@ namespace AgentForUnity.Editor.Application
         private const int MaxConsoleMessageCharacters = 4 * 1024;
         private const int MaxConsoleStackTraceCharacters = 12 * 1024;
         private const int MaxContextCharacters = 128 * 1024;
+        private const int MaxSerializedPropertiesPerObject = 96;
+        private const int MaxSerializedStringCharacters = 512;
+        private const int MaxSerializedArrayItems = 32;
+        private const int MaxSerializedDepth = 6;
         private static readonly object ConsoleLock = new object();
         private static readonly Queue<AgentConsoleLogEntry> ConsoleEntries = new Queue<AgentConsoleLogEntry>();
         private static long _nextConsoleEntryId;
         private static readonly Regex SecretAssignment = new Regex(
             @"(?im)(api[_-]?key|access[_-]?token|authorization|password|secret)\s*[:=]\s*([^\s,;]+)",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        private static readonly Regex StackFramePattern = new Regex(
+            @"(?<path>(?:Assets[\\/])?[^\\r\\n:()]+?\.cs)\:(?<line>\d+)",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         static AgentForUnityContextCollector()
@@ -155,6 +162,66 @@ namespace AgentForUnity.Editor.Application
                 firstLine = firstLine.Substring(0, 60) + "…";
             var label = "Console · " + firstLine + (entries.Count > 1 ? $" +{entries.Count - 1}" : string.Empty);
             return Create(AgentContextKind.Console, label, "Unity Console", content.ToString(), false);
+        }
+
+        internal static AgentContextItem CaptureSmartConsole(string projectRoot, IReadOnlyList<AgentConsoleLogEntry> selectedEntries)
+        {
+            var raw = CaptureConsole(selectedEntries);
+            var content = new StringBuilder(raw.Content)
+                .AppendLine().AppendLine("Smart Unity diagnostic context");
+            var seenFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var matchingTypes = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var entry in selectedEntries ?? Array.Empty<AgentConsoleLogEntry>())
+            {
+                foreach (Match match in StackFramePattern.Matches(entry?.StackTrace ?? string.Empty))
+                {
+                    var relative = match.Groups["path"].Value.Replace('\\', '/');
+                    var absolute = Path.IsPathRooted(relative)
+                        ? relative
+                        : Path.Combine(projectRoot, relative.StartsWith("Assets/", StringComparison.Ordinal)
+                            ? relative
+                            : "Assets/" + relative);
+                    relative = ToProjectRelative(projectRoot, absolute);
+                    if (!relative.StartsWith("Assets/", StringComparison.Ordinal))
+                        continue;
+                    if (!File.Exists(absolute) || !seenFiles.Add(relative))
+                        continue;
+                    if (!int.TryParse(match.Groups["line"].Value, out var line))
+                        continue;
+
+                    var lines = File.ReadAllLines(absolute);
+                    var start = Math.Max(1, line - 20);
+                    var end = Math.Min(lines.Length, line + 20);
+                    content.AppendLine().Append("Source excerpt: ").Append(relative)
+                        .Append(" line ").Append(line).AppendLine();
+                    for (var index = start; index <= end; index++)
+                        content.Append(index).Append(": ").AppendLine(Redact(lines[index - 1]));
+                    var className = Path.GetFileNameWithoutExtension(relative);
+                    if (!string.IsNullOrEmpty(className))
+                        matchingTypes.Add(className);
+                }
+            }
+
+            var matched = Resources.FindObjectsOfTypeAll<MonoBehaviour>()
+                .Where(value => value != null && value.gameObject.scene.IsValid() &&
+                                matchingTypes.Contains(value.GetType().Name))
+                .Take(8)
+                .ToList();
+            if (matched.Count > 0)
+            {
+                content.AppendLine().AppendLine("Matching scene component snapshots");
+                foreach (var component in matched)
+                {
+                    AppendSelectedObject(content, projectRoot, component);
+                }
+            }
+            else
+            {
+                content.AppendLine("Matching scene component snapshots: none found");
+            }
+
+            return Create(AgentContextKind.Console, "Smart Console · " + raw.Label.Substring("Console · ".Length),
+                "Unity Console (smart)", content.ToString(), false);
         }
 
         internal static AgentContextItem CaptureFile(string projectRoot, string absolutePath)
@@ -458,7 +525,9 @@ namespace AgentForUnity.Editor.Application
 #else
             output.AppendLine().Append("  Instance ID: ").Append(selected.GetInstanceID());
 #endif
-            output.AppendLine().Append("  Global Object ID: ").Append(GlobalObjectId.GetGlobalObjectIdSlow(selected));
+            var globalObjectId = GlobalObjectId.GetGlobalObjectIdSlow(selected).ToString();
+            output.AppendLine().Append("  Global Object ID: ").Append(globalObjectId);
+            output.AppendLine().Append("  Query Handle: GlobalObjectId=").Append(globalObjectId);
             var assetPath = AssetDatabase.GetAssetPath(selected);
             if (!string.IsNullOrEmpty(assetPath))
             {
@@ -485,9 +554,115 @@ namespace AgentForUnity.Editor.Application
                     : gameObject.scene.path);
             }
             output.AppendLine().Append("  Active: ").Append(gameObject.activeSelf);
-            output.AppendLine().Append("  Components: ").Append(string.Join(", ", gameObject.GetComponents<Component>()
+            var components = gameObject.GetComponents<Component>();
+            output.AppendLine().Append("  Components: ").Append(string.Join(", ", components
                 .Where(value => value != null)
                 .Select(value => value.GetType().FullName)));
+            if (components.Any(value => value == null))
+                output.AppendLine().Append("  Missing Script: true");
+
+            var prefabRoot = PrefabUtility.GetNearestPrefabInstanceRoot(gameObject);
+            if (prefabRoot != null)
+            {
+                var prefabPath = PrefabUtility.GetPrefabAssetPathOfNearestInstanceRoot(gameObject);
+                output.AppendLine().Append("  Prefab: ")
+                    .Append(string.IsNullOrEmpty(prefabPath) ? "instance" : ToProjectRelative(projectRoot, prefabPath));
+                output.AppendLine().Append("  Prefab Status: ").Append(PrefabUtility.GetPrefabInstanceStatus(gameObject));
+                var modifications = PrefabUtility.GetPropertyModifications(gameObject);
+                output.AppendLine().Append("  Prefab Overrides: ").Append(modifications == null ? 0 : modifications.Length);
+            }
+
+            foreach (var serializedComponent in components.Where(value => value != null).Take(16))
+            {
+                AppendSerializedProperties(output, projectRoot, serializedComponent);
+            }
+
+            if (!(selected is GameObject) && EditorUtility.IsPersistent(selected))
+                AppendSerializedProperties(output, projectRoot, selected);
+        }
+
+        private static void AppendSerializedProperties(StringBuilder output, string projectRoot, Object target)
+        {
+            SerializedObject serializedObject;
+            try
+            {
+                serializedObject = new SerializedObject(target);
+            }
+            catch (Exception)
+            {
+                return;
+            }
+
+            var iterator = serializedObject.GetIterator();
+            var emitted = 0;
+            var arrayItems = new Dictionary<string, int>(StringComparer.Ordinal);
+            if (!iterator.NextVisible(true))
+                return;
+
+            output.AppendLine().Append("  Serialized ").Append(target.GetType().Name).Append(':');
+            do
+            {
+                if (emitted >= MaxSerializedPropertiesPerObject || iterator.depth > MaxSerializedDepth)
+                    break;
+                if (iterator.propertyPath == "m_Script")
+                    continue;
+
+                var arrayRoot = iterator.propertyPath;
+                var bracket = arrayRoot.IndexOf(".Array.data[", StringComparison.Ordinal);
+                if (bracket >= 0)
+                    arrayRoot = arrayRoot.Substring(0, bracket);
+                if (iterator.isArray && iterator.propertyType == SerializedPropertyType.Generic)
+                    arrayItems[arrayRoot] = 0;
+                if (bracket >= 0)
+                {
+                    if (!arrayItems.TryGetValue(arrayRoot, out var count) || count >= MaxSerializedArrayItems)
+                        continue;
+                    arrayItems[arrayRoot] = count + 1;
+                }
+
+                output.Append("    ").Append(iterator.propertyPath).Append(" (")
+                    .Append(iterator.propertyType).Append("): ")
+                    .AppendLine(SerializedPropertyValue(iterator, projectRoot));
+                emitted++;
+            } while (iterator.NextVisible(true));
+            if (emitted >= MaxSerializedPropertiesPerObject)
+                output.AppendLine("    ... serialized properties omitted");
+        }
+
+        private static string SerializedPropertyValue(SerializedProperty property, string projectRoot)
+        {
+            switch (property.propertyType)
+            {
+                case SerializedPropertyType.ObjectReference:
+                    if (property.objectReferenceValue == null)
+                        return "null";
+                    var referenced = property.objectReferenceValue;
+                    var path = AssetDatabase.GetAssetPath(referenced);
+                    var identity = GlobalObjectId.GetGlobalObjectIdSlow(referenced).ToString();
+                    return referenced.name + " [" + identity + "]" +
+                           (string.IsNullOrEmpty(path) ? string.Empty : " " + path + " GUID=" + AssetDatabase.AssetPathToGUID(path));
+                case SerializedPropertyType.String:
+                    return LimitConsoleText(Redact(property.stringValue), MaxSerializedStringCharacters);
+                case SerializedPropertyType.Vector2:
+                    return property.vector2Value.ToString();
+                case SerializedPropertyType.Vector3:
+                    return property.vector3Value.ToString();
+                case SerializedPropertyType.Color:
+                    return property.colorValue.ToString();
+                case SerializedPropertyType.Integer:
+                    return property.longValue.ToString();
+                case SerializedPropertyType.Boolean:
+                    return property.boolValue.ToString();
+                case SerializedPropertyType.Float:
+                    return property.doubleValue.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                case SerializedPropertyType.Enum:
+                    return property.enumDisplayNames != null && property.enumValueIndex >= 0 &&
+                           property.enumValueIndex < property.enumDisplayNames.Length
+                        ? property.enumDisplayNames[property.enumValueIndex]
+                        : property.enumValueIndex.ToString();
+                default:
+                    return property.ToString();
+            }
         }
 
         private static string GetHierarchyPath(Transform transform)

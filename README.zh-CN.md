@@ -35,6 +35,10 @@ https://github.com/lfzl000/AgentForUnity.git#main
 
 发送前可附加项目、所选对象、控制台日志、文件、场景或 Git 差异等资料。在已选对象、组件或控制台日志上右键，选择 **添加到 AgentForUnity**，即可加入输入框。
 
+所选对象上下文包含一份有大小限制的 Unity 对象 Snapshot，包括稳定对象 ID、场景和层级路径、组件类型、序列化字段、Prefab 信息、Missing Script 标记和对象引用。点击上下文卡片上的预览按钮，可以查看实际发送的脱敏内容。从控制台右键添加的 Smart Context 还会在堆栈可解析时附加源码片段和匹配的场景组件 Snapshot。
+
+Snapshot 有意设置了大小限制。当请求的字段未包含在 Snapshot 中时，Agent for Unity 可以通过已激活的 Unity Tooling，使用 Global Object ID 或项目路径按需查询。如果 Unity Tooling 未启用并连接，则无法按需查询对象、组件、Prefab 和场景状态，也无法执行 Unity Editor 操作和验证。Tooling 面板和回合结束消息都会明确提示 **请启用并连接 Unity Tooling**。文本和文件处理仍可继续。
+
 使用 **+ 图片/录屏** 附加剪贴板图片或捕获 Game 视图。输入框获得焦点时，macOS 按 **Cmd+V**、Windows 按 **Ctrl+V** 可附加剪贴板图片。媒体附件不会进入 `Assets`，发送前可移除。
 
 录屏：复制本地视频文件后在输入框粘贴，或选择 **+ 图片/录屏 → 剪贴板录屏**。支持 macOS/Windows 文件剪贴板，macOS 也支持剪贴板中的原始视频数据。支持 `.mp4`、`.mov`、`.m4v`、`.webm`、`.mkv`、`.avi`，每个录屏最多 512 MiB；复制多个文件时附加第一个视频。可以只发送录屏、不输入文字。点击附件卡片可使用系统默认应用播放。移除草稿只删除托管副本，不删除原文件；已发送副本保留供历史消息使用。

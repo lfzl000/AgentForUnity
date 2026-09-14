@@ -1104,6 +1104,13 @@ namespace AgentForUnity.Editor.UI
                 label.AddToClassList("afu-context-chip__label");
                 chip.Add(label);
                 var contextId = context.Id;
+                var preview = new Button(() => AgentForUnityContextPreviewWindow.Open(context))
+                {
+                    text = "…",
+                    tooltip = T("Preview full context", "预览完整上下文")
+                };
+                preview.AddToClassList("afu-context-chip__remove");
+                chip.Add(preview);
                 var remove = new Button(() => _service.RemoveContext(contextId)) { text = "×", tooltip = "Remove context" };
                 remove.AddToClassList("afu-context-chip__remove");
                 chip.Add(remove);
@@ -1718,7 +1725,16 @@ namespace AgentForUnity.Editor.UI
                 : _service.ToolingCliToolPath;
             _toolingPackageStatus.text = LocalizeToolingStatus(_service.ToolingPackageStatus);
             _toolingPackageStatus.tooltip = _toolingPackageStatus.text;
-            _toolingConnectionStatus.text = LocalizeToolingStatus(_service.ToolingConnectionStatus);
+            var connectionStatus = LocalizeToolingStatus(_service.ToolingConnectionStatus);
+            if (!_service.ToolingConnectionReachable && !_service.ToolingConnectionChecking)
+            {
+                connectionStatus = T(
+                    "Action required: Enable and connect Unity Tooling. Missing: on-demand object, component, " +
+                    "Prefab, and scene inspection; Unity Editor operations and validation. Text and file-based work can continue.\n",
+                    "需要操作：请启用并连接 Unity Tooling。当前缺失：按需查询对象、组件、Prefab 和场景状态，" +
+                    "以及 Unity Editor 操作和验证。文本与文件处理仍可继续。\n") + connectionStatus;
+            }
+            _toolingConnectionStatus.text = connectionStatus;
             _toolingConnectionStatus.tooltip = string.IsNullOrEmpty(_service.ToolingConnectionEndpoint)
                 ? _toolingConnectionStatus.text
                 : _service.ToolingConnectionEndpoint;
@@ -3390,6 +3406,36 @@ namespace AgentForUnity.Editor.UI
         private static string T(string english, string chinese)
         {
             return AgentForUnityWindow.T(english, chinese);
+        }
+    }
+
+    internal sealed class AgentForUnityContextPreviewWindow : EditorWindow
+    {
+        private AgentContextItem _context;
+
+        internal static void Open(AgentContextItem context)
+        {
+            if (context == null)
+                return;
+            var window = CreateInstance<AgentForUnityContextPreviewWindow>();
+            window._context = context;
+            window.titleContent = new GUIContent(context.Label);
+            window.minSize = new Vector2(520f, 360f);
+            window.ShowUtility();
+        }
+
+        private void CreateGUI()
+        {
+            rootVisualElement.style.paddingLeft = 8;
+            rootVisualElement.style.paddingRight = 8;
+            rootVisualElement.style.paddingTop = 8;
+            rootVisualElement.style.paddingBottom = 8;
+            rootVisualElement.Add(new Label((_context?.Label ?? "Context") + " · " + (_context?.CharacterCount ?? 0) + " characters"));
+            var scroll = new ScrollView();
+            var body = new Label(_context?.Content ?? string.Empty) { enableRichText = false };
+            body.style.whiteSpace = WhiteSpace.Normal;
+            scroll.Add(body);
+            rootVisualElement.Add(scroll);
         }
     }
 }

@@ -216,6 +216,7 @@ namespace AgentForUnity.Editor.Application
         private bool _changePending;
         private bool _interruptWhenStarted;
         private bool _domainReloadLockedForTurn;
+        private bool _turnUsedLazyContext;
         private int _connectionGeneration;
         private int _diagnosticsVersion;
         private int _operationGeneration;
@@ -601,6 +602,9 @@ namespace AgentForUnity.Editor.Application
                 MarkChanged();
                 return;
             }
+
+            _turnUsedLazyContext = submittedContexts.Any(item =>
+                item.Kind == AgentContextKind.Selection || item.Kind == AgentContextKind.Console);
 
             var operation = BeginUserOperation();
             var client = _client;
@@ -1964,6 +1968,7 @@ namespace AgentForUnity.Editor.Application
             }
 
             HandleM1TurnCompleted(completedTurnId, TurnState);
+            AppendLazyContextToolingNotice(completedTurnId);
             UnlockDomainReloadForInactiveTurn();
             RequestCompilationVerificationAfterCompletedTurn(completedTurnId, TurnState);
             SetAutomaticTitleAfterFirstCompletedTurn(completedTurnId);
