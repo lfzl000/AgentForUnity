@@ -184,11 +184,16 @@ namespace AgentForUnity.Editor.Application
         private const int MaxReconnectAttempts = 3;
         private const double ReconnectStabilitySeconds = 30d;
         private const double ProjectChangesRefreshSeconds = 2d;
-        private const string UnityCompilationDeveloperInstructions =
-            "You are operating through Agent for Unity. Do not trigger Unity script compilation or perform " +
-            "compilation validation while a turn is active. Complete the requested work and end the turn first. " +
-            "After a completed turn with file changes, the plugin requests Unity script compilation. Do not claim " +
-            "that compilation validation ran during this turn; report it as pending until the plugin provides a result.";
+        private string UnityCompilationDeveloperInstructions => UsingAgentBridge
+            ? "You are operating through Agent for Unity. Agent Bridge keeps this conversation alive across Unity " +
+              "script compilation, Domain Reload, and Play Mode. After batching script or text-file edits, you may " +
+              "refresh and compile during the current turn. Follow UNITY-GUIDE.md. Do not claim Play Mode or visual " +
+              "validation from compilation results alone."
+            : "You are operating through Agent for Unity. The current connection does not use Agent Bridge, so Unity " +
+              "script compilation would interrupt this turn. Do not trigger compilation or compilation validation " +
+              "while a turn is active. Complete the requested work and end the turn first. After a completed turn " +
+              "with file changes, the plugin requests Unity script compilation. Do not claim that compilation " +
+              "validation ran during this turn; report it as pending until the plugin provides a result.";
 
         private readonly string _projectRoot;
         private readonly List<AgentModelInfo> _models = new List<AgentModelInfo>();

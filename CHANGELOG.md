@@ -2,6 +2,12 @@
 
 All notable changes to Agent for Unity are documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- Agent Bridge conversations may refresh and compile during an active turn. The previous instruction to wait until the turn ended is removed; the legacy App Server path still defers compilation until the turn completes so Domain Reload cannot drop the session.
+
 ## [0.9.0] - 2026-09-15
 
 ### Added

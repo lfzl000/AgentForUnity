@@ -70,7 +70,7 @@ Snapshot 有意设置了大小限制。当请求的字段未包含在 Snapshot �
 
 **当前变更** 面板提供当前 Unity 项目所属仓库的 **拉取**、**推送** 和 **提交全部**。使用前请审查变更；提交不会自动推送。
 
-回合记录了文件变更后，Agent for Unity 可以请求脚本编译并展示结果。编译反馈不等同于 Play Mode 或视觉验证。
+使用 Agent Bridge 时，可以在当前对话进行中刷新并编译。回合记录了文件变更后，Agent for Unity 也可以请求脚本编译并展示结果。编译反馈不等同于 Play Mode 或视觉验证。没有 Agent Bridge 时，编译会等到回合结束后再进行，以免 Domain Reload 中断会话。
 
 ## Bridge 行为
 

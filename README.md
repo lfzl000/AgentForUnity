@@ -72,7 +72,7 @@ When more file-system or network access is required, the window presents an appr
 
 The **Project Changes** panel provides **Pull**, **Push**, and **Commit All** for the repository containing the Unity project. Review changes before using these actions; committing does not push automatically.
 
-After a turn records file changes, Agent for Unity can request script compilation and show the result. Compilation feedback is not Play Mode or visual validation.
+With Agent Bridge, compilation can run during an active conversation. After a turn records file changes, Agent for Unity can also request script compilation and show the result. Compilation feedback is not Play Mode or visual validation. Without Agent Bridge, compilation waits until the turn completes so Domain Reload cannot interrupt the session.
 
 ## Bridge behavior
 

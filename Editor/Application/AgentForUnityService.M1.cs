@@ -58,8 +58,8 @@ namespace AgentForUnity.Editor.Application
                                   !string.IsNullOrEmpty(_turnId);
         internal bool CanRequestUnityCompilation => !_disposed &&
                                                     !GitBusy &&
-                                                    TurnState == AgentTurnState.Completed &&
-                                                    !EditorApplication.isCompiling;
+                                                    !EditorApplication.isCompiling &&
+                                                    (UsingAgentBridge || !IsTurnActive);
 
         internal bool TryAddContext(AgentContextKind kind, string path, out string error)
         {
