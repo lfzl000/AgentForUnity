@@ -60,11 +60,14 @@
                     <ui:Label name="turn-state" text="Idle" class="afu-turn-state" />
                 </ui:VisualElement>
 
-                <ui:ScrollView name="messages-scroll" class="afu-messages">
-                    <ui:VisualElement name="messages-list" class="afu-messages__list">
-                        <ui:VisualElement name="messages-delivery-list" class="afu-messages__delivery-list" />
-                    </ui:VisualElement>
-                </ui:ScrollView>
+                <ui:VisualElement name="messages-host" class="afu-messages-host">
+                    <ui:ScrollView name="messages-scroll" class="afu-messages">
+                        <ui:VisualElement name="messages-list" class="afu-messages__list">
+                            <ui:VisualElement name="messages-delivery-list" class="afu-messages__delivery-list" />
+                        </ui:VisualElement>
+                    </ui:ScrollView>
+                    <ui:Button name="scroll-to-latest-button" text="Back to latest" tooltip="Jump to the latest messages and resume auto-follow" class="afu-scroll-to-latest" />
+                </ui:VisualElement>
 
                 <ui:VisualElement name="chat-approval-alert" class="afu-chat-approval-alert">
                     <ui:VisualElement class="afu-chat-approval-alert__text">

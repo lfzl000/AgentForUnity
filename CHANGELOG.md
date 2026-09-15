@@ -2,7 +2,11 @@
 
 All notable changes to Agent for Unity are documented in this file.
 
-## [Unreleased]
+## [0.9.1] - 2026-09-15
+
+### Fixed
+
+- Streaming replies no longer pin the conversation to the bottom. Scrolling up pauses auto-follow, a **Back to latest** control restores it, and finishing a reply no longer yanks the viewport if you are reading earlier messages.
 
 ### Changed
 

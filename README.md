@@ -40,7 +40,7 @@ The Bridge uses a local loopback port and temporary state under `Library/AgentFo
 3. Select a model, reasoning effort, and permission mode.
 4. Start a conversation and send your request.
 
-The window streams the agent response and associated activity. Use **New Thread** to begin another conversation, or select a previous conversation for the current project to resume it. An active conversation in another Codex client opens read-only.
+The window streams the agent response and associated activity. Scroll up to read earlier messages while a reply is still streaming; auto-follow pauses until you click **Back to latest** or return to the bottom. Use **New Thread** to begin another conversation, or select a previous conversation for the current project to resume it. An active conversation in another Codex client opens read-only.
 
 ## Context And Media
 

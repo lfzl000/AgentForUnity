@@ -48,6 +48,7 @@ namespace AgentForUnity.Editor.UI
         private DropdownField _permissionField;
         private DropdownField _languageField;
         private ScrollView _messagesScroll;
+        private Button _scrollToLatestButton;
         private ScrollView _detailsScroll;
         private VisualElement _messagesList;
         private VisualElement _messagesDeliveryList;
@@ -102,6 +103,10 @@ namespace AgentForUnity.Editor.UI
         private Button _installToolingPackageButton;
         private Button _refreshToolingButton;
         private bool _isRefreshing;
+        private bool _followMessages = true;
+        private bool _userInitiatedMessageScroll;
+        private bool _pointerScrollingMessages;
+        private int _programmaticMessageScrolls;
         private int _lastMessageCount;
         private int _lastMessageTextLength;
         private string _lastContextSignature;
@@ -178,6 +183,10 @@ namespace AgentForUnity.Editor.UI
             _lastThreadSignature = null;
             _lastRenderedThreadId = null;
             _activeChatApprovalKey = null;
+            _followMessages = true;
+            _userInitiatedMessageScroll = false;
+            _pointerScrollingMessages = false;
+            _programmaticMessageScrolls = 0;
 
             var visualTree = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(UxmlPath);
             if (visualTree != null)
@@ -236,6 +245,7 @@ namespace AgentForUnity.Editor.UI
             _permissionField = rootVisualElement.Q<DropdownField>("permission-field");
             _languageField = rootVisualElement.Q<DropdownField>("language-field");
             _messagesScroll = rootVisualElement.Q<ScrollView>("messages-scroll");
+            _scrollToLatestButton = rootVisualElement.Q<Button>("scroll-to-latest-button");
             _detailsScroll = rootVisualElement.Q<ScrollView>("details-scroll");
             _messagesList = rootVisualElement.Q<VisualElement>("messages-list");
             _messagesDeliveryList = rootVisualElement.Q<VisualElement>("messages-delivery-list");
@@ -311,6 +321,7 @@ namespace AgentForUnity.Editor.UI
                    && _permissionField != null
                    && _languageField != null
                    && _messagesScroll != null
+                   && _scrollToLatestButton != null
                    && _detailsScroll != null
                    && _messagesList != null
                    && _messagesDeliveryList != null
@@ -371,6 +382,14 @@ namespace AgentForUnity.Editor.UI
             _promptField.SetVerticalScrollerVisibility(ScrollerVisibility.Auto);
             _messagesScroll.mode = ScrollViewMode.Vertical;
             _messagesScroll.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
+            _messagesScroll.verticalScroller.valueChanged += OnMessagesScrolled;
+            _messagesScroll.RegisterCallback<WheelEvent>(OnMessagesWheel, TrickleDown.TrickleDown);
+            _messagesScroll.verticalScroller.RegisterCallback<PointerDownEvent>(OnMessagesScrollPointerDown, TrickleDown.TrickleDown);
+            _messagesScroll.verticalScroller.RegisterCallback<PointerUpEvent>(OnMessagesScrollPointerUp, TrickleDown.TrickleDown);
+            _messagesScroll.verticalScroller.RegisterCallback<PointerCaptureOutEvent>(OnMessagesScrollPointerCaptureOut);
+            _messagesScroll.RegisterCallback<GeometryChangedEvent>(OnMessagesGeometryChanged);
+            _messagesScroll.contentContainer.RegisterCallback<GeometryChangedEvent>(OnMessagesGeometryChanged);
+            _scrollToLatestButton.clicked += ScrollToLatestMessages;
             _detailsScroll.mode = ScrollViewMode.Vertical;
             _detailsScroll.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
             var detailsContent = _detailsScroll.contentContainer;
@@ -391,7 +410,11 @@ namespace AgentForUnity.Editor.UI
             _checkPackageUpdateButton.clicked += () => _service.CheckForPackageUpdate();
             _packageUpdateButton.clicked += () => _service.UpdatePackage();
             _diagnosticsButton.clicked += AgentForUnityDiagnosticsWindow.Open;
-            _newThreadButton.clicked += () => _service.NewThread();
+            _newThreadButton.clicked += () =>
+            {
+                _followMessages = true;
+                _service.NewThread();
+            };
             _refreshThreadsButton.clicked += () => _service.RefreshThreads();
             _interruptButton.clicked += () => _service.Interrupt();
             _sendButton.clicked += SendPrompt;
@@ -493,6 +516,7 @@ namespace AgentForUnity.Editor.UI
                     _lastMessageCount = -1;
                     _lastMessageTextLength = -1;
                     _lastMessagePresentationSignature = null;
+                    _followMessages = true;
                 }
                 RefreshMessages(
                     _service.Messages,
@@ -794,6 +818,7 @@ namespace AgentForUnity.Editor.UI
                 _lastMessageCount = 0;
                 _lastMessageTextLength = 0;
                 _lastMessagePresentationSignature = null;
+                UpdateScrollToLatestButton();
                 return;
             }
 
@@ -848,8 +873,25 @@ namespace AgentForUnity.Editor.UI
             {
                 _lastMessageCount = messageCount;
                 _lastMessageTextLength = lastTextLength;
+                FollowMessagesIfNeeded();
+            }
+
+            UpdateScrollToLatestButton();
+        }
+
+        private void FollowMessagesIfNeeded()
+        {
+            if (_followMessages)
+            {
                 ScrollMessagesToBottom();
             }
+        }
+
+        private void ScrollToLatestMessages()
+        {
+            _followMessages = true;
+            ScrollMessagesToBottom();
+            UpdateScrollToLatestButton();
         }
 
         private void ScrollMessagesToBottom()
@@ -858,13 +900,119 @@ namespace AgentForUnity.Editor.UI
             {
                 _messagesScroll.schedule.Execute(() =>
                 {
-                    var maximumOffset = Mathf.Max(
-                        0f,
-                        _messagesScroll.contentContainer.layout.height -
+                    if (!_followMessages)
+                    {
+                        UpdateScrollToLatestButton();
+                        return;
+                    }
+
+                    var maximumOffset = AgentMessageScrollFollow.MaximumOffset(
+                        _messagesScroll.contentContainer.layout.height,
                         _messagesScroll.contentViewport.layout.height);
-                    _messagesScroll.scrollOffset = new Vector2(_messagesScroll.scrollOffset.x, maximumOffset);
+                    if (Mathf.Abs(_messagesScroll.scrollOffset.y - maximumOffset) <= 0.5f)
+                    {
+                        UpdateScrollToLatestButton();
+                        return;
+                    }
+
+                    ApplyProgrammaticMessageScroll(maximumOffset);
+                    UpdateScrollToLatestButton();
                 });
             });
+        }
+
+        private void ApplyProgrammaticMessageScroll(float offset)
+        {
+            _programmaticMessageScrolls++;
+            _messagesScroll.scrollOffset = new Vector2(_messagesScroll.scrollOffset.x, offset);
+            _messagesScroll.schedule.Execute(() =>
+            {
+                if (_programmaticMessageScrolls > 0)
+                {
+                    _programmaticMessageScrolls--;
+                }
+            });
+        }
+
+        private void OnMessagesScrolled(float _)
+        {
+            if (_programmaticMessageScrolls > 0)
+            {
+                return;
+            }
+
+            _followMessages = AgentMessageScrollFollow.ResolveFollow(
+                _followMessages,
+                IsMessagesNearBottom(),
+                _userInitiatedMessageScroll);
+            UpdateScrollToLatestButton();
+        }
+
+        private void OnMessagesWheel(WheelEvent _)
+        {
+            MarkUserInitiatedMessageScroll();
+        }
+
+        private void OnMessagesScrollPointerDown(PointerDownEvent _)
+        {
+            _pointerScrollingMessages = true;
+            _userInitiatedMessageScroll = true;
+        }
+
+        private void OnMessagesScrollPointerUp(PointerUpEvent _)
+        {
+            EndPointerScrollingMessages();
+        }
+
+        private void OnMessagesScrollPointerCaptureOut(PointerCaptureOutEvent _)
+        {
+            EndPointerScrollingMessages();
+        }
+
+        private void MarkUserInitiatedMessageScroll()
+        {
+            _userInitiatedMessageScroll = true;
+            _messagesScroll.schedule.Execute(ClearUserInitiatedMessageScrollIfIdle);
+        }
+
+        private void EndPointerScrollingMessages()
+        {
+            _pointerScrollingMessages = false;
+            _messagesScroll.schedule.Execute(ClearUserInitiatedMessageScrollIfIdle);
+        }
+
+        private void ClearUserInitiatedMessageScrollIfIdle()
+        {
+            if (!_pointerScrollingMessages)
+            {
+                _userInitiatedMessageScroll = false;
+            }
+        }
+
+        private void OnMessagesGeometryChanged(GeometryChangedEvent _)
+        {
+            FollowMessagesIfNeeded();
+            UpdateScrollToLatestButton();
+        }
+
+        private bool IsMessagesNearBottom()
+        {
+            return AgentMessageScrollFollow.IsNearBottom(
+                _messagesScroll.scrollOffset.y,
+                _messagesScroll.contentContainer.layout.height,
+                _messagesScroll.contentViewport.layout.height);
+        }
+
+        private void UpdateScrollToLatestButton()
+        {
+            if (_scrollToLatestButton == null)
+            {
+                return;
+            }
+
+            var showButton = !_followMessages;
+            _scrollToLatestButton.style.display = showButton ? DisplayStyle.Flex : DisplayStyle.None;
+            _scrollToLatestButton.pickingMode = showButton ? PickingMode.Position : PickingMode.Ignore;
         }
 
         private void ArrangeMessageRows(
@@ -1227,7 +1375,7 @@ namespace AgentForUnity.Editor.UI
                 row.ActivityList.Add(detail);
             }
 
-            ScrollMessagesToBottom();
+            FollowMessagesIfNeeded();
         }
 
         private static string ActivitySummary(AgentActivityItem activity)
@@ -2034,6 +2182,7 @@ namespace AgentForUnity.Editor.UI
                 return;
             }
 
+            _followMessages = true;
             if (_service.CanSteer)
             {
                 _service.Steer(prompt);
@@ -2297,6 +2446,12 @@ namespace AgentForUnity.Editor.UI
                 "Attach a clipboard image or recording, or capture the Game view",
                 "附加剪贴板图片、录屏，或捕获 Game 视图");
             SetText("interrupt-button", "Stop", "停止");
+            SetText(
+                "scroll-to-latest-button",
+                "Back to latest",
+                "回到最新",
+                "Jump to the latest messages and resume auto-follow",
+                "跳到最新消息并恢复自动跟随");
             SetText("chat-allow-once-button", "Allow Once", "仅允许一次");
             SetText("chat-allow-session-button", "Allow Session", "本次会话允许");
             SetText("chat-decline-button", "Decline", "拒绝");
@@ -2718,7 +2873,15 @@ namespace AgentForUnity.Editor.UI
             var messagesList = Element("messages-list", "afu-messages__list");
             messagesList.Add(Element("messages-delivery-list", "afu-messages__delivery-list"));
             messageScroll.Add(messagesList);
-            chatPane.Add(messageScroll);
+            var messagesHost = Element("messages-host", "afu-messages-host");
+            messagesHost.Add(messageScroll);
+            var scrollToLatest = Button(
+                "scroll-to-latest-button",
+                "Back to latest",
+                "Jump to the latest messages and resume auto-follow");
+            scrollToLatest.AddToClassList("afu-scroll-to-latest");
+            messagesHost.Add(scrollToLatest);
+            chatPane.Add(messagesHost);
 
             var chatApprovalAlert = Element("chat-approval-alert", "afu-chat-approval-alert");
             var chatApprovalText = Element(null, "afu-chat-approval-alert__text");
@@ -2917,7 +3080,21 @@ namespace AgentForUnity.Editor.UI
             _refreshThreadsButton.style.height = 24f;
             _refreshThreadsButton.style.minHeight = 24f;
             chatPane.style.flexGrow = 1f;
+            var messagesHost = rootVisualElement.Q<VisualElement>("messages-host");
+            if (messagesHost != null)
+            {
+                messagesHost.style.flexGrow = 1f;
+                messagesHost.style.minHeight = 0f;
+                messagesHost.style.position = Position.Relative;
+            }
             _messagesScroll.style.flexGrow = 1f;
+            if (_scrollToLatestButton != null)
+            {
+                _scrollToLatestButton.style.position = Position.Absolute;
+                _scrollToLatestButton.style.right = 12f;
+                _scrollToLatestButton.style.bottom = 12f;
+                _scrollToLatestButton.style.display = DisplayStyle.None;
+            }
             _promptField.style.minHeight = 70f;
             _promptField.style.maxHeight = 180f;
             detailsPane.style.width = 280f;
