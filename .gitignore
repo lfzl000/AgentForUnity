@@ -40,3 +40,9 @@ Thumbs.db
 /Assets/
 /ProjectSettings/
 /Packages/
+
+# The external Agent Bridge is a checked-in .NET project. The trailing `~`
+# keeps Unity Package Manager from importing the bridge as Editor content.
+!/Bridge~/*.csproj
+/Bridge~/bin/
+/Bridge~/obj/

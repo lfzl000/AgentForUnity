@@ -14,6 +14,7 @@ namespace AgentForUnity.Editor.Application
         public string projectPath;
         public string threadId;
         public string turnId;
+        public string turnStartedAtUtc;
         public string selectedModelId;
         public string selectedReasoningEffort;
         public string permissionMode;

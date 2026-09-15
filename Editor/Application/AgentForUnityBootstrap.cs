@@ -20,8 +20,9 @@ namespace AgentForUnity.Editor.Application
         private static void HandlePlayModeStateChanged(PlayModeStateChange state)
         {
             if (state != PlayModeStateChange.ExitingEditMode ||
-                (!Service.IsTurnStarting && !Service.GitBusy) ||
-                !AgentForUnityService.EnterPlayModeReloadsDomain())
+                (!Service.GitBusy &&
+                 (Service.UsingAgentBridge || !Service.IsTurnStarting ||
+                  !AgentForUnityService.EnterPlayModeReloadsDomain())))
             {
                 return;
             }

@@ -9,6 +9,9 @@ Agent for Unity 是一个仅限 Editor 使用的 Unity 包，可将项目连接�
 - Unity 2022.3 LTS 或更高版本
 - macOS 或 Windows
 - Codex CLI `0.144.0` 或更高版本，且已登录 Codex 账号
+- 正式包会按平台内置 Agent Bridge 运行时；源码检出版本在没有对应运行时时需要安装 .NET 9 SDK
+
+当前仓库已提供 macOS Apple Silicon（`osx-arm64`）Bridge。若安装包没有当前平台的 Bridge，插件会自动回退到原版 App Server，并在窗口诊断中明确提示。回退模式下，Unity 重载脚本域可能中断正在进行的对话。
 
 ## 安装
 
@@ -21,6 +24,12 @@ https://github.com/lfzl000/AgentForUnity.git#main
 ```
 
 该包依赖 `com.unity.nuget.newtonsoft-json` `3.2.1`。
+
+### 首次使用
+
+连接前请确认 `codex --version` 为 `0.144.0` 或更高版本，并已通过 Codex CLI 登录账号。源码检出版本在没有内置 Bridge 时还需要 .NET 9 SDK。打开窗口后点击 **连接**。如果需要查询场景、对象或执行 Unity Editor 操作，请完成 **Unity 工具** 面板中的配置；纯文本和文件对话可以不配置 Unity Tooling。
+
+Bridge 使用本机回环端口，并在 `Library/AgentForUnity/` 下保存临时状态文件。如果防火墙或安全软件拦截本机连接，需要允许该连接。
 
 ## 快速开始
 
@@ -62,6 +71,12 @@ Snapshot 有意设置了大小限制。当请求的字段未包含在 Snapshot �
 **当前变更** 面板提供当前 Unity 项目所属仓库的 **拉取**、**推送** 和 **提交全部**。使用前请审查变更；提交不会自动推送。
 
 回合记录了文件变更后，Agent for Unity 可以请求脚本编译并展示结果。编译反馈不等同于 Play Mode 或视觉验证。
+
+## Bridge 行为
+
+检测到当前平台的内置 Bridge 时，Bridge 会在 Unity 进程外托管 Codex App Server，使对话可以跨越脚本重新编译、Domain Reload 和 Play Mode。Bridge 工作时，窗口会隐藏 Enter Play Mode 设置区域。
+
+没有对应平台的 Bridge 时，插件会使用旧版 App Server 进程。此时 Enter Play Mode 设置区域会保留，并提示启用 Reload Domain 可能中断当前对话。
 
 ## 隐私和存储
 

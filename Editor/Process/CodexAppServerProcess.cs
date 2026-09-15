@@ -210,7 +210,7 @@ namespace AgentForUnity.Editor.Codex
             }
         }
 
-        private static bool TryCreateCompatibleModelCatalog(
+        internal static bool TryCreateCompatibleModelCatalog(
             string projectRoot,
             out string compatibleCatalogPath,
             out string diagnostic)

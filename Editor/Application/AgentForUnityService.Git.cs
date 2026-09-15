@@ -15,6 +15,7 @@ namespace AgentForUnity.Editor.Application
     {
         private CancellationTokenSource _gitCancellation;
         private CodexAppServerClient _gitMessageClient;
+        private AgentBridgeTransport _gitBridgeTransport;
         private bool _gitReloadLocked;
         private const string CommitMessageModel = "gpt-5.6-luna";
         private const string CommitMessageEffort = "low";
@@ -87,8 +88,10 @@ namespace AgentForUnity.Editor.Application
             }
             finally
             {
+                _gitBridgeTransport?.StopBridge();
                 _gitMessageClient?.Dispose();
                 _gitMessageClient = null;
+                _gitBridgeTransport = null;
                 if (ReferenceEquals(_gitCancellation, cancellation)) _gitCancellation = null;
                 cancellation.Dispose();
                 ReleaseGitReloadLock();
@@ -105,8 +108,9 @@ namespace AgentForUnity.Editor.Application
         private async Task<string> GenerateCommitMessageAsync(string root, string prompt, CancellationToken token)
         {
             // A dedicated client keeps all background events out of the user's current chat.
-            var transport = new CodexAppServerProcess();
-            transport.Start(CliPath, _projectRoot);
+            var transport = new AgentBridgeTransport();
+            _gitBridgeTransport = transport;
+            await transport.StartAsync(CliPath, _projectRoot, false, "bridge-git.json");
             var client = new CodexAppServerClient(transport);
             _gitMessageClient = client;
             var completion = new TaskCompletionSource<string>();
@@ -199,8 +203,10 @@ namespace AgentForUnity.Editor.Application
         private void DisposeGit()
         {
             _gitCancellation?.Cancel();
+            _gitBridgeTransport?.StopBridge();
             _gitMessageClient?.Dispose();
             _gitMessageClient = null;
+            _gitBridgeTransport = null;
             ReleaseGitReloadLock();
         }
 

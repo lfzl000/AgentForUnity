@@ -75,6 +75,7 @@ namespace AgentForUnity.Editor.UI
         private Label _toolingPackageStatus;
         private Label _toolingConnectionStatus;
         private Label _playModeSettingsDescription;
+        private VisualElement _playModeSettings;
         private Toggle _enterPlayModeOptionsToggle;
         private Toggle _reloadDomainToggle;
         private Toggle _reloadSceneToggle;
@@ -262,6 +263,7 @@ namespace AgentForUnity.Editor.UI
             _toolingPackageStatus = rootVisualElement.Q<Label>("tooling-package-status");
             _toolingConnectionStatus = rootVisualElement.Q<Label>("tooling-connection-status");
             _playModeSettingsDescription = rootVisualElement.Q<Label>("play-mode-settings-description");
+            _playModeSettings = rootVisualElement.Q<VisualElement>("play-mode-settings");
             _enterPlayModeOptionsToggle = rootVisualElement.Q<Toggle>("enter-play-mode-options-toggle");
             _reloadDomainToggle = rootVisualElement.Q<Toggle>("reload-domain-toggle");
             _reloadSceneToggle = rootVisualElement.Q<Toggle>("reload-scene-toggle");
@@ -1670,7 +1672,7 @@ namespace AgentForUnity.Editor.UI
             _reconnectButton.text = _service.CanDisconnect ? T("Reconnect", "重新连接") : T("Connect", "连接");
             _reconnectButton.tooltip = _service.CanDisconnect
                 ? T("Restart connection detection", "重新检测连接")
-                : T("Connect to the Codex App Server", "连接 Codex App Server");
+                : T("Connect to the Agent Bridge", "连接 Agent Bridge");
             _sendButton.text = _service.CanSteer ? T("Steer", "引导") : T("Send", "发送");
             _sendButton.tooltip = _service.ToolingBlocksNewTurns
                 ? T(
@@ -1894,6 +1896,17 @@ namespace AgentForUnity.Editor.UI
 
         private void RefreshPlayModeSettings()
         {
+            if (_playModeSettings != null)
+            {
+                _playModeSettings.style.display = _service.UsingAgentBridge
+                    ? DisplayStyle.None
+                    : DisplayStyle.Flex;
+            }
+            if (_service.UsingAgentBridge)
+            {
+                return;
+            }
+
             var optionsEnabled = EditorSettings.enterPlayModeOptionsEnabled;
             var options = EditorSettings.enterPlayModeOptions;
             var reloadDomain = !optionsEnabled ||
@@ -1909,14 +1922,14 @@ namespace AgentForUnity.Editor.UI
             if (reloadDomain)
             {
                 _playModeSettingsDescription.text = T(
-                    "Agent for Unity cannot enter Play Mode during a conversation while Reload Domain is enabled. To allow automated checks, enable Enter Play Mode Options, disable Reload Domain, and enable Reload Scene.",
-                    "Reload Domain 开启时，Agent for Unity 无法在对话中进入 Play Mode。要允许自动检查：勾选 Enter Play Mode Options，不勾选 Reload Domain，勾选 Reload Scene。");
+                    "No packaged Agent Bridge is available for this platform. The legacy App Server process is used; entering Play Mode with Reload Domain enabled can interrupt the active conversation.",
+                    "当前平台没有可用的内置 Agent Bridge，将使用旧版 App Server 进程；启用 Reload Domain 时进入 Play Mode 可能中断当前对话。");
             }
             else
             {
                 _playModeSettingsDescription.text = T(
-                    "Agent for Unity remains connected in Play Mode and can run automated checks during the conversation. Recommended: Enter Play Mode Options enabled, Reload Domain disabled, Reload Scene enabled.",
-                    "Agent for Unity 可在 Play Mode 中保持对话并自动运行检查。推荐设置：勾选 Enter Play Mode Options，不勾选 Reload Domain，勾选 Reload Scene。");
+                    "Agent for Unity remains connected in Play Mode and can run Unity Tooling checks during the conversation.",
+                    "Agent for Unity 可在 Play Mode 中保持对话，并在会话中继续运行 Unity Tool 检查。");
             }
         }
 
@@ -2268,8 +2281,8 @@ namespace AgentForUnity.Editor.UI
             _reloadDomainToggle.label = T("Reload Domain", "重新加载 Domain");
             _reloadSceneToggle.label = T("Reload Scene", "重新加载 Scene");
             SetText("refresh-tooling-button", "↻", "↻", "Refresh the selected Unity tooling backend", "刷新所选 Unity 能力来源");
-            SetText("reconnect-button", "Connect", "连接", "Connect to the Codex App Server", "连接 Codex App Server");
-            SetText("disconnect-button", "Disconnect", "断开连接", "Stop the Codex App Server connection", "停止 Codex App Server 连接");
+            SetText("reconnect-button", "Connect", "连接", "Connect to the Agent Bridge", "连接 Agent Bridge");
+            SetText("disconnect-button", "Disconnect", "断开连接", "Disconnect from the Agent Bridge", "断开 Agent Bridge");
             SetText("new-thread-button", "New Thread", "新建对话", "Start a new project-scoped thread", "开始一个项目范围的新对话");
             SetText("refresh-threads-button", "↻", "↻", "Reload conversations for this Unity project", "重新加载此 Unity 项目的对话");
             SetText("add-selection-button", "+ Selection", "+ 选择");
@@ -2394,6 +2407,8 @@ namespace AgentForUnity.Editor.UI
 
             switch (status)
             {
+                case "Starting Agent Bridge": return "正在启动 Agent Bridge";
+                case "Agent Bridge disconnected": return "Agent Bridge 已断开";
                 case "Connected - thread restored": return "已连接 - 已恢复对话";
                 case "Connected - active turn restored": return "已连接 - 已恢复进行中的回合";
                 case "Connected - thread recovery failed": return "已连接 - 恢复对话失败";
@@ -2403,8 +2418,8 @@ namespace AgentForUnity.Editor.UI
                 case "Interrupted": return "已中断";
                 case "Failed": return "失败";
                 case "Working": return "处理中";
-                case "Play Mode blocked - Domain Reload would interrupt the conversation":
-                    return "已阻止进入 Play Mode - Domain Reload 会中断对话";
+                case "Play Mode blocked - Git action is in progress":
+                    return "已阻止进入 Play Mode - Git 操作正在进行";
                 case "Waiting for approval": return "等待审批";
                 case "Waiting for command approval": return "等待命令审批";
                 case "Waiting for file approval": return "等待文件审批";
@@ -2656,8 +2671,8 @@ namespace AgentForUnity.Editor.UI
             languageField.AddToClassList("afu-select");
             languageField.AddToClassList("afu-select--language");
             headerActions.Add(languageField);
-            headerActions.Add(Button("reconnect-button", "Connect", "Connect to the Codex App Server"));
-            headerActions.Add(Button("disconnect-button", "Disconnect", "Stop the Codex App Server connection"));
+            headerActions.Add(Button("reconnect-button", "Connect", "Connect to the Agent Bridge"));
+            headerActions.Add(Button("disconnect-button", "Disconnect", "Disconnect from the Agent Bridge"));
             header.Add(headerActions);
             windowRoot.Add(header);
 
@@ -2815,6 +2830,7 @@ namespace AgentForUnity.Editor.UI
             refreshTooling.AddToClassList("afu-tooling__refresh");
             toolingFoldout.Add(refreshTooling);
             var playModeSettings = Element(null, "afu-play-mode-settings");
+            playModeSettings.name = "play-mode-settings";
             playModeSettings.Add(Label("play-mode-settings-caption", "Enter Play Mode", "afu-tooling__caption"));
             playModeSettings.Add(Label(
                 "play-mode-settings-scope",

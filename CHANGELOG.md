@@ -2,6 +2,20 @@
 
 All notable changes to Agent for Unity are documented in this file.
 
+## [0.9.0] - 2026-09-15
+
+### Added
+
+- Added the external Agent Bridge runtime path for keeping Codex conversations alive across Unity recompilation, Domain Reload, and Play Mode.
+- Added a macOS Apple Silicon (`osx-arm64`) self-contained Bridge runtime to the package.
+- Added fallback to the legacy Codex App Server transport when the current platform has no packaged Bridge runtime.
+- Added first-use, Bridge fallback, and platform runtime guidance to the English and Chinese README files.
+
+### Changed
+
+- Hide the Enter Play Mode settings section while the Agent Bridge is active.
+- Show explicit diagnostics and retain the legacy Play Mode interruption protection when the Bridge is unavailable.
+
 ## [0.8.3] - 2026-09-14
 
 ### Fixed

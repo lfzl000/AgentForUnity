@@ -134,7 +134,7 @@
                         </ui:VisualElement>
                     </ui:VisualElement>
                     <ui:Button name="refresh-tooling-button" text="↻" tooltip="Refresh the selected tooling backend" class="afu-tooling__refresh" />
-                    <ui:VisualElement class="afu-play-mode-settings">
+                    <ui:VisualElement name="play-mode-settings" class="afu-play-mode-settings">
                         <ui:Label name="play-mode-settings-caption" text="Enter Play Mode" class="afu-tooling__caption" />
                         <ui:Label name="play-mode-settings-scope" text="Impact on Agent for Unity" class="afu-play-mode-settings__scope" />
                         <ui:Toggle name="enter-play-mode-options-toggle" label="Enter Play Mode Options" />

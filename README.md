@@ -9,6 +9,9 @@ Agent for Unity is an Editor-only Unity package that connects your project to a 
 - Unity 2022.3 LTS or newer
 - macOS or Windows
 - Codex CLI `0.144.0` or later, signed in to a Codex account
+- The release package includes the Agent Bridge runtime for the host platform. Source checkouts can run the Bridge through the installed `dotnet` SDK.
+
+The package currently includes a macOS Apple Silicon (`osx-arm64`) Bridge runtime. If the current platform has no packaged runtime, Agent for Unity falls back to the original Codex App Server transport and shows a diagnostic. In fallback mode, an active conversation can be interrupted when Unity reloads the scripting domain.
 
 ## Install
 
@@ -23,6 +26,12 @@ https://github.com/lfzl000/AgentForUnity.git#main
 ```
 
 The package depends on `com.unity.nuget.newtonsoft-json` `3.2.1`.
+
+### First use
+
+Before connecting, verify that `codex --version` reports `0.144.0` or later and sign in with the Codex CLI. Source checkouts also require a .NET 9 SDK when no packaged Bridge runtime is available. Open the window and click **Connect**. Complete **Unity Tooling** setup when you need scene inspection or Editor operations; text and file conversations can work without it.
+
+The Bridge uses a local loopback port and temporary state under `Library/AgentForUnity/`. Firewall or endpoint-security software must allow the local connection.
 
 ## Get Started
 
@@ -65,6 +74,12 @@ The **Project Changes** panel provides **Pull**, **Push**, and **Commit All** fo
 
 After a turn records file changes, Agent for Unity can request script compilation and show the result. Compilation feedback is not Play Mode or visual validation.
 
+## Bridge behavior
+
+With a matching packaged runtime, the Bridge owns the Codex App Server process outside Unity. Conversations can survive script recompilation, Domain Reload, and Play Mode transitions, and the Play Mode settings section is hidden.
+
+Without a matching runtime, the package uses the legacy App Server process. The Play Mode settings section remains visible and explains that Reload Domain can interrupt an active conversation.
+
 ## Privacy And Storage
 
 Codex manages authentication and conversation history. Agent for Unity does not write API keys, OAuth tokens, or message history into `Assets`. Temporary state and media attachments are stored under `Library/AgentForUnity/`.
@@ -77,4 +92,6 @@ Editor/
   Process/       Codex process lifecycle and CLI detection
   Protocol/      JSON-RPC and App Server protocol handling
   UI/            UI Toolkit window and Markdown renderer
+Bridge~/
+  Program.cs     External session host used to keep Codex alive across Unity Domain Reload and Play Mode
 ```

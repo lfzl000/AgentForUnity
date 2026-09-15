@@ -216,7 +216,6 @@ namespace AgentForUnity.Editor.Application
         private bool _turnStartPending;
         private bool _changePending;
         private bool _interruptWhenStarted;
-        private bool _domainReloadLockedForTurn;
         private bool _turnUsedLazyContext;
         private int _connectionGeneration;
         private int _diagnosticsVersion;
@@ -245,6 +244,15 @@ namespace AgentForUnity.Editor.Application
             _persistedState = AgentForUnityStateStore.Load(_projectRoot, out var loadError);
             _threadId = _persistedState.threadId;
             _turnId = _persistedState.turnId;
+            if (!string.IsNullOrEmpty(_turnId) &&
+                DateTime.TryParse(
+                    _persistedState.turnStartedAtUtc,
+                    null,
+                    System.Globalization.DateTimeStyles.RoundtripKind,
+                    out var persistedTurnStartedAtUtc))
+            {
+                _turnStartedAtUtc = persistedTurnStartedAtUtc.ToUniversalTime();
+            }
             _selectedModelId = _persistedState.selectedModelId;
             _selectedReasoningEffort = _persistedState.selectedReasoningEffort;
             foreach (var usage in _persistedState.threadContextUsages)
@@ -277,6 +285,8 @@ namespace AgentForUnity.Editor.Application
         internal string TurnStateLabel => TurnState.ToString();
         internal string StatusText { get; private set; } = "Not connected";
         internal string CliPath { get; private set; }
+        internal bool UsingAgentBridge { get; private set; }
+        internal bool PackagedBridgeAvailable => AgentBridgeLocator.HasPackagedRuntime(_projectRoot);
         internal string CliVersion { get; private set; }
         internal string AccountLabel { get; private set; } = "Unknown";
         internal string AccountUsageLabel { get; private set; } = "Unavailable";
@@ -428,10 +438,10 @@ namespace AgentForUnity.Editor.Application
                 SetGitStatus("Wait for the Git action before entering Play Mode", "请等待 Git 操作完成后再进入 Play Mode", GitDetails);
                 return;
             }
-            StatusText = "Play Mode blocked - Domain Reload would interrupt the conversation";
+            StatusText = "Play Mode blocked - active conversation would be interrupted";
             AddDiagnostic(
-                "Cancelled Play Mode entry because Domain Reload would interrupt the active conversation. " +
-                "Enter Play Mode again after the turn finishes.");
+                "Cancelled Play Mode entry because the legacy Codex App Server process cannot survive Domain Reload. " +
+                "Install the Agent Bridge runtime for this platform, or finish the active conversation first.");
             MarkChanged();
         }
 
@@ -476,7 +486,6 @@ namespace AgentForUnity.Editor.Application
             _connectionGeneration++;
             _connecting = false;
             DisposeClient();
-            ReleaseDomainReloadLock();
             ConnectionState = AgentConnectionState.Disconnected;
             StatusText = "Disconnected";
             MarkChanged();
@@ -663,7 +672,6 @@ namespace AgentForUnity.Editor.Application
                 }
 
                 TurnState = AgentTurnState.Starting;
-                LockDomainReloadForActiveTurn();
                 StatusText = "Starting turn";
                 _turnId = null;
                 _lastTurnDuration = null;
@@ -674,10 +682,7 @@ namespace AgentForUnity.Editor.Application
                 var parameters = new JObject
                 {
                     ["threadId"] = _threadId,
-                    ["input"] = BuildTurnInput(
-                        prompt,
-                        submittedContexts,
-                        EnterPlayModeReloadsDomain()),
+                    ["input"] = BuildTurnInput(prompt, submittedContexts),
                     ["cwd"] = _projectRoot,
                     ["approvalPolicy"] = AgentPermissionPolicy.GetApprovalPolicy(_permissionMode),
                     ["approvalsReviewer"] = AgentPermissionPolicy.GetApprovalsReviewer(_permissionMode),
@@ -725,7 +730,6 @@ namespace AgentForUnity.Editor.Application
                 {
                     TurnState = AgentTurnState.Failed;
                     _turnStartPending = false;
-                    UnlockDomainReloadForInactiveTurn();
                     StatusText = "Turn failed to start";
                 }
                 else if (TurnState == AgentTurnState.Starting)
@@ -908,7 +912,6 @@ namespace AgentForUnity.Editor.Application
             DisposeGit();
             CancelUserOperation();
             _connectionGeneration++;
-            ReleaseDomainReloadLock();
             SaveState();
             DisposeClient();
             ConnectionState = AgentConnectionState.Stopped;
@@ -948,20 +951,33 @@ namespace AgentForUnity.Editor.Application
                 }
 
                 ConnectionState = AgentConnectionState.Connecting;
-                StatusText = "Starting Codex App Server";
+                StatusText = PackagedBridgeAvailable ? "Starting Agent Bridge" : "Starting Codex App Server (Bridge unavailable)";
                 MarkChanged();
 
-                var process = new CodexAppServerProcess();
-                process.Start(cliInfo.Path, _projectRoot);
-                if (!string.IsNullOrEmpty(process.StartupDiagnostic))
+                ICodexAppServerTransport transport;
+                if (PackagedBridgeAvailable)
                 {
-                    AddDiagnostic(process.StartupDiagnostic);
+                    var bridge = new AgentBridgeTransport();
+                    await bridge.StartAsync(cliInfo.Path, _projectRoot);
+                    transport = bridge;
+                    UsingAgentBridge = true;
                 }
-                newClient = new CodexAppServerClient(process);
+                else
+                {
+                    var process = new CodexAppServerProcess();
+                    process.Start(cliInfo.Path, _projectRoot);
+                    transport = process;
+                    UsingAgentBridge = false;
+                    AddDiagnostic("This platform does not include an Agent Bridge runtime. Using the legacy Codex App Server process; Play Mode may interrupt an active conversation.");
+                }
+                newClient = new CodexAppServerClient(transport);
                 AttachClient(newClient);
                 _client = newClient;
 
-                await newClient.InitializeAsync();
+                if (transport is AgentBridgeTransport bridgeTransport && !bridgeTransport.ReusedExistingBridge)
+                {
+                    await newClient.InitializeAsync();
+                }
                 if (!IsCurrentConnection(generation))
                 {
                     return;
@@ -1171,7 +1187,6 @@ namespace AgentForUnity.Editor.Application
                 _streamingMessages.Clear();
                 _turnId = null;
                 TurnState = AgentTurnState.Failed;
-                UnlockDomainReloadForInactiveTurn();
             }
 
             SaveState();
@@ -1362,14 +1377,6 @@ namespace AgentForUnity.Editor.Application
             _threadReadOnly = false;
             KeepRecentTurnsForDisplay(thread);
             RebuildMessages(thread);
-            if (IsTurnActive)
-            {
-                LockDomainReloadForActiveTurn();
-            }
-            else
-            {
-                UnlockDomainReloadForInactiveTurn();
-            }
             AddOrUpdateThread(thread);
             SaveState();
             MarkChanged();
@@ -1581,10 +1588,13 @@ namespace AgentForUnity.Editor.Application
 
         private void RebuildMessages(JObject thread)
         {
+            var persistedTurnId = _turnId;
+            var persistedTurnStartedAtUtc = _turnStartedAtUtc;
             _messages.Clear();
             _streamingMessages.Clear();
             ResetM1ForRestoredThread();
             _turnId = null;
+            _turnStartedAtUtc = default;
             TurnState = AgentTurnState.Idle;
 
             if (!(thread?["turns"] is JArray turns))
@@ -1614,6 +1624,11 @@ namespace AgentForUnity.Editor.Application
                 if (string.Equals(status, "inProgress", StringComparison.Ordinal))
                 {
                     _turnId = turnId;
+                    _turnStartedAtUtc = ReadTurnStartedAtUtc(turn) ??
+                                        (string.Equals(turnId, persistedTurnId, StringComparison.Ordinal) &&
+                                         persistedTurnStartedAtUtc != default
+                                            ? persistedTurnStartedAtUtc
+                                            : DateTime.UtcNow);
                     TurnState = AgentTurnState.Running;
                 }
                 else if (!string.IsNullOrEmpty(status))
@@ -1705,6 +1720,27 @@ namespace AgentForUnity.Editor.Application
             }
 
             return null;
+        }
+
+        private static DateTime? ReadTurnStartedAtUtc(JObject turn)
+        {
+            var startedAt = turn?.Value<long?>("startedAt");
+            if (!startedAt.HasValue || startedAt.Value <= 0)
+            {
+                return null;
+            }
+
+            try
+            {
+                var value = startedAt.Value;
+                return value >= 100000000000
+                    ? DateTimeOffset.FromUnixTimeMilliseconds(value).UtcDateTime
+                    : DateTimeOffset.FromUnixTimeSeconds(value).UtcDateTime;
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return null;
+            }
         }
 
         private void HandleNotification(CodexMessage message)
@@ -1983,7 +2019,6 @@ namespace AgentForUnity.Editor.Application
 
             HandleM1TurnCompleted(completedTurnId, TurnState);
             AppendLazyContextToolingNotice(completedTurnId);
-            UnlockDomainReloadForInactiveTurn();
             RequestCompilationVerificationAfterCompletedTurn(completedTurnId, TurnState);
             SetAutomaticTitleAfterFirstCompletedTurn(completedTurnId);
 
@@ -2209,6 +2244,7 @@ namespace AgentForUnity.Editor.Application
         {
             var client = _client;
             _client = null;
+            UsingAgentBridge = false;
             _threadsLoading = false;
             if (client == null)
             {
@@ -2249,7 +2285,7 @@ namespace AgentForUnity.Editor.Application
             }
 
             ConnectionState = AgentConnectionState.Faulted;
-            StatusText = "App Server disconnected";
+            StatusText = "Agent Bridge disconnected";
             AddDiagnostic(reason);
             ScheduleReconnect();
         }
@@ -2367,6 +2403,9 @@ namespace AgentForUnity.Editor.Application
             SaveUnityToolingState();
             _persistedState.threadId = _threadId;
             _persistedState.turnId = _turnId;
+            _persistedState.turnStartedAtUtc = IsTurnStarting && _turnStartedAtUtc != default
+                ? _turnStartedAtUtc.ToString("O")
+                : null;
             _persistedState.selectedModelId = _selectedModelId;
             _persistedState.selectedReasoningEffort = _selectedReasoningEffort;
             _persistedState.permissionMode = _permissionMode.ToString();
@@ -2418,40 +2457,6 @@ namespace AgentForUnity.Editor.Application
             }
 
             AddDiagnostic(message);
-        }
-
-        // Keep the App Server process alive while it owns a streaming turn. A queued script
-        // compilation may still run, but Unity defers the Domain Reload until this is released.
-        private void LockDomainReloadForActiveTurn()
-        {
-            if (_domainReloadLockedForTurn)
-            {
-                return;
-            }
-
-            EditorApplication.LockReloadAssemblies();
-            _domainReloadLockedForTurn = true;
-        }
-
-        private void UnlockDomainReloadForInactiveTurn()
-        {
-            if (!_domainReloadLockedForTurn || IsTurnActive)
-            {
-                return;
-            }
-
-            ReleaseDomainReloadLock();
-        }
-
-        private void ReleaseDomainReloadLock()
-        {
-            if (!_domainReloadLockedForTurn)
-            {
-                return;
-            }
-
-            EditorApplication.UnlockReloadAssemblies();
-            _domainReloadLockedForTurn = false;
         }
 
         private void MarkChanged()
