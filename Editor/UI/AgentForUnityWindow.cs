@@ -44,6 +44,7 @@ namespace AgentForUnity.Editor.UI
         private ScrollView _conversationsScroll;
         private VisualElement _conversationsList;
         private DropdownField _modelField;
+        private DropdownField _providerField;
         private DropdownField _reasoningField;
         private DropdownField _permissionField;
         private DropdownField _languageField;
@@ -231,6 +232,7 @@ namespace AgentForUnity.Editor.UI
             _conversationsScroll = rootVisualElement.Q<ScrollView>("conversations-scroll");
             _conversationsList = rootVisualElement.Q<VisualElement>("conversations-list");
             _modelField = rootVisualElement.Q<DropdownField>("model-field");
+            _providerField = rootVisualElement.Q<DropdownField>("provider-field");
             _reasoningField = rootVisualElement.Q<DropdownField>("reasoning-field");
             _permissionField = rootVisualElement.Q<DropdownField>("permission-field");
             _languageField = rootVisualElement.Q<DropdownField>("language-field");
@@ -413,6 +415,7 @@ namespace AgentForUnity.Editor.UI
             _reloadDomainToggle.RegisterValueChangedCallback(OnReloadDomainChanged);
             _reloadSceneToggle.RegisterValueChangedCallback(OnReloadSceneChanged);
             _modelField.RegisterValueChangedCallback(OnModelChanged);
+            _providerField?.RegisterValueChangedCallback(OnProviderChanged);
             _reasoningField.RegisterValueChangedCallback(OnReasoningChanged);
             _permissionField.RegisterValueChangedCallback(OnPermissionChanged);
             _languageField.RegisterValueChangedCallback(OnLanguageChanged);
@@ -475,6 +478,7 @@ namespace AgentForUnity.Editor.UI
 
                 RefreshConnectionTone(connectionState);
                 RefreshModels(_service.Models, _service.SelectedModelId);
+                RefreshProvider();
                 RefreshReasoningEfforts(_service.ReasoningEfforts, _service.SelectedReasoningEffort);
                 RefreshPermissionMode(_service.PermissionMode);
                 RefreshConversations(
@@ -734,6 +738,14 @@ namespace AgentForUnity.Editor.UI
             var selectedIndex = _modelIds.IndexOf(selectedModelId);
             _modelField.SetValueWithoutNotify(selectedIndex >= 0 ? choices[selectedIndex] : choices[0]);
             _modelField.SetEnabled(_modelIds.Count > 0 && _service.CanSend);
+        }
+
+        private void RefreshProvider()
+        {
+            if (_providerField == null || _service == null) return;
+            _providerField.choices = new List<string> { "Codex", "Claude Code" };
+            _providerField.SetValueWithoutNotify(_service.ProviderId == "claude-code" ? "Claude Code" : "Codex");
+            _providerField.SetEnabled(_service.CanChangeProvider);
         }
 
         private void RefreshReasoningEfforts(IReadOnlyList<string> efforts, string selectedEffort)
@@ -2175,6 +2187,12 @@ namespace AgentForUnity.Editor.UI
             }
         }
 
+        private void OnProviderChanged(ChangeEvent<string> change)
+        {
+            if (_isRefreshing || _providerField == null || !_providerField.enabledSelf) return;
+            _service.SelectProvider(change.newValue == "Claude Code" ? "claude-code" : "codex");
+        }
+
         private void OnReasoningChanged(ChangeEvent<string> change)
         {
             if (_isRefreshing || !_reasoningField.enabledSelf)
@@ -2656,6 +2674,9 @@ namespace AgentForUnity.Editor.UI
             languageField.AddToClassList("afu-select");
             languageField.AddToClassList("afu-select--language");
             headerActions.Add(languageField);
+            var providerField = new DropdownField { name = "provider-field", tooltip = "Agent provider" };
+            providerField.AddToClassList("afu-select");
+            headerActions.Add(providerField);
             headerActions.Add(Button("reconnect-button", "Connect", "Connect to the Codex App Server"));
             headerActions.Add(Button("disconnect-button", "Disconnect", "Stop the Codex App Server connection"));
             header.Add(headerActions);

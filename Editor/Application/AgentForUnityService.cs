@@ -206,6 +206,7 @@ namespace AgentForUnity.Editor.Application
         private readonly AgentForUnityPersistedState _persistedState;
 
         private CodexAppServerClient _client;
+        private IAgentProvider _agentProvider;
         private bool _started;
         private bool _connecting;
         private bool _disposed;
@@ -231,6 +232,7 @@ namespace AgentForUnity.Editor.Application
         private AgentPermissionMode _permissionMode;
         private string _selectedModelId;
         private string _selectedReasoningEffort;
+        private string _providerId;
         private string _threadId;
         private string _threadAwaitingAutomaticTitle;
         private string _nextThreadsCursor;
@@ -247,6 +249,8 @@ namespace AgentForUnity.Editor.Application
             _turnId = _persistedState.turnId;
             _selectedModelId = _persistedState.selectedModelId;
             _selectedReasoningEffort = _persistedState.selectedReasoningEffort;
+            _providerId = string.IsNullOrEmpty(_persistedState.providerId) ? "codex" : _persistedState.providerId;
+            _agentProvider = AgentProviderRegistry.Create(_providerId);
             foreach (var usage in _persistedState.threadContextUsages)
             {
                 if (!string.IsNullOrEmpty(usage?.threadId) && usage.modelContextWindow > 0)
@@ -376,6 +380,36 @@ namespace AgentForUnity.Editor.Application
                 SaveState();
                 MarkChanged();
             }
+        }
+
+        internal string ProviderId => _agentProvider.Id;
+        internal string ProviderDisplayName => _agentProvider.DisplayName;
+        internal bool CanChangeProvider => !_disposed && !IsTurnActive && !_operationInProgress && !GitBusy;
+
+        internal void SelectProvider(string providerId)
+        {
+            if (!CanChangeProvider || string.Equals(providerId, _providerId, StringComparison.Ordinal)) return;
+            SaveState();
+            var wasStarted = _started;
+            DisposeClient();
+            _providerId = providerId;
+            _agentProvider = AgentProviderRegistry.Create(providerId);
+            _persistedState.providerId = providerId;
+            _threadId = null;
+            _turnId = null;
+            _selectedModelId = null;
+            _selectedReasoningEffort = null;
+            _threadReady = false;
+            _threadReadOnly = false;
+            _threads.Clear();
+            _models.Clear();
+            _contexts.Clear();
+            _projectContextSent = false;
+            TurnState = AgentTurnState.Idle;
+            ConnectionState = AgentConnectionState.Disconnected;
+            SaveState();
+            MarkChanged();
+            if (wasStarted) ConnectInternal(true);
         }
 
         internal string SelectedReasoningEffort
@@ -931,14 +965,14 @@ namespace AgentForUnity.Editor.Application
             CodexAppServerClient newClient = null;
             try
             {
-                var cliInfo = await CodexCliLocator.DetectAsync();
+                var cliInfo = await _agentProvider.DetectAsync();
                 if (!IsCurrentConnection(generation))
                 {
                     return;
                 }
 
                 CliPath = cliInfo.Path;
-                CliVersion = cliInfo.Version;
+                CliVersion = _agentProvider.DisplayName + " " + cliInfo.Version;
                 if (!cliInfo.IsAvailable)
                 {
                     ConnectionState = AgentConnectionState.CliMissing;
@@ -951,13 +985,12 @@ namespace AgentForUnity.Editor.Application
                 StatusText = "Starting Codex App Server";
                 MarkChanged();
 
-                var process = new CodexAppServerProcess();
-                process.Start(cliInfo.Path, _projectRoot);
-                if (!string.IsNullOrEmpty(process.StartupDiagnostic))
+                var newClientDiagnostic = string.Empty;
+                newClient = _agentProvider.StartClient(cliInfo.Path, _projectRoot, out newClientDiagnostic);
+                if (!string.IsNullOrEmpty(newClientDiagnostic))
                 {
-                    AddDiagnostic(process.StartupDiagnostic);
+                    AddDiagnostic(newClientDiagnostic);
                 }
-                newClient = new CodexAppServerClient(process);
                 AttachClient(newClient);
                 _client = newClient;
 
@@ -1086,6 +1119,17 @@ namespace AgentForUnity.Editor.Application
         private async System.Threading.Tasks.Task LoadModelsAsync(CodexAppServerClient client, int generation)
         {
             var loadedModels = new List<AgentModelInfo>();
+            if (_agentProvider.Id == "claude-code")
+            {
+                loadedModels.AddRange(DiscoverClaudeModels());
+                _models.Clear();
+                _models.AddRange(loadedModels);
+                if (string.IsNullOrEmpty(_selectedModelId) || !_models.Any(model => model.Id == _selectedModelId))
+                    _selectedModelId = _models[0].Id;
+                RefreshReasoningEfforts();
+                SaveState();
+                return;
+            }
             string cursor = null;
             do
             {
@@ -1152,6 +1196,57 @@ namespace AgentForUnity.Editor.Application
 
             RefreshReasoningEfforts();
             SaveState();
+        }
+
+        private static List<AgentModelInfo> DiscoverClaudeModels()
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            var result = new List<AgentModelInfo>();
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var settingsPath = Path.Combine(home, ".claude", "settings.json");
+            AddClaudeModelFromJson(settingsPath, ids, result);
+            var projects = Path.Combine(home, ".claude", "projects");
+            if (Directory.Exists(projects))
+            {
+                foreach (var file in Directory.GetFiles(projects, "*.jsonl", SearchOption.AllDirectories))
+                {
+                    try
+                    {
+                        foreach (var line in File.ReadLines(file))
+                        {
+                            if (line.Length > 1024 * 1024) continue;
+                            var value = JObject.Parse(line);
+                            AddClaudeModel(value.Value<string>("model"), ids, result);
+                            AddClaudeModel(value["message"]?.Value<string>("model"), ids, result);
+                        }
+                    }
+                    catch { /* A partial or old session file should not block connection. */ }
+                }
+            }
+            var efforts = new List<string> { "low", "medium", "high", "xhigh", "max" };
+            if (result.Count == 0)
+                result.Add(new AgentModelInfo("auto", "Auto (Claude Code)", true, "medium", efforts));
+            else
+            {
+                for (var index = 0; index < result.Count; index++)
+                {
+                    var model = result[index];
+                    result[index] = new AgentModelInfo(model.Id, model.DisplayName, index == 0, "medium", efforts);
+                }
+            }
+            return result;
+        }
+
+        private static void AddClaudeModelFromJson(string path, HashSet<string> ids, List<AgentModelInfo> result)
+        {
+            try { if (File.Exists(path)) AddClaudeModel(JObject.Parse(File.ReadAllText(path)).Value<string>("model"), ids, result); }
+            catch { }
+        }
+
+        private static void AddClaudeModel(string id, HashSet<string> ids, List<AgentModelInfo> result)
+        {
+            if (string.IsNullOrWhiteSpace(id) || !ids.Add(id)) return;
+            result.Add(new AgentModelInfo(id, id, false, "medium", new List<string> { "low", "medium", "high", "xhigh", "max" }));
         }
 
         private void HandleThreadRecoveryFailure(Exception exception)
@@ -2368,6 +2463,7 @@ namespace AgentForUnity.Editor.Application
             _persistedState.threadId = _threadId;
             _persistedState.turnId = _turnId;
             _persistedState.selectedModelId = _selectedModelId;
+            _persistedState.providerId = _providerId;
             _persistedState.selectedReasoningEffort = _selectedReasoningEffort;
             _persistedState.permissionMode = _permissionMode.ToString();
             _persistedState.threadContextUsages = _contextUsageByThreadId

@@ -15,6 +15,7 @@ namespace AgentForUnity.Editor.Application
         public string threadId;
         public string turnId;
         public string selectedModelId;
+        public string providerId;
         public string selectedReasoningEffort;
         public string permissionMode;
         public string requestedToolingBackend;
